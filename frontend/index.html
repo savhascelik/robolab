@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>CircuitLab 3D — Spatial Hardware Workbench</title>
+    <meta name="description" content="3D Spatial Electronics Workbench: wire Arduino Uno, ESP32, and NVIDIA Jetson Nano circuits with real-time closed-loop electrical simulation." />
+    <meta name="theme-color" content="#0B0C0E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles/main.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three.module.min.js"
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div id="app" class="spatial-workbench">
+      <!-- Full-Bleed 3D Hardware Stage (100vw x 100vh) -->
+      <main class="stage" id="stage">
+        <canvas id="board-canvas" aria-label="Interactive 3D hardware stage"></canvas>
+      </main>
+
+      <!-- Top Floating Context Pills (Left: Board & Multimeter | Right: X-Ray, Lang, Theme, Auth) -->
+      <header id="top-context-root" class="top-context-layer" aria-label="Workbench Context Bar"></header>
+
+      <!-- Diagnostic HUD Banner (Appears above dock only on electrical fault or diagnostic request) -->
+      <section id="diagnostic-hud-root" class="diagnostic-hud-layer" aria-live="polite" hidden></section>
+
+      <!-- Dual-Mode AI Agent Chat Layer (Dock Activity Stream + 380px Right Sidebar) -->
+      <section id="ai-chat-root" class="ai-chat-layer" aria-live="polite"></section>
+
+      <!-- Bottom-Center Floating Command Dock (Tools + Circuit Command Input + On-Demand Triggers) -->
+      <nav id="bottom-dock-root" class="bottom-dock-layer" aria-label="Bottom Command Dock"></nav>
+
+      <!-- On-Demand Slide-Over Code & Serial Drawer (Closed by default) -->
+      <aside id="drawer-root" class="drawer-layer" aria-label="Hardware Code Drawer" hidden></aside>
+
+      <!-- On-Demand Component Palette & Datasheet Synthesizer Popover (Closed by default) -->
+      <section id="popover-root" class="popover-layer" aria-label="Component Catalog Popover" hidden></section>
+
+      <!-- On-Demand Modal Root (Workspaces & Study Groups / Account & Auth Modal - Closed by default) -->
+      <div id="modal-root" class="modal-layer" hidden></div>
+
+      <!-- 3D Robotics & Edge AI Showcase Landing Layer (Scene 01: Sumo Robot | Scene 02: Jetson Vision Robot) -->
+      <section id="landing-showcase-root" class="landing-showcase-layer" aria-label="3D Robotics Showcase Landing"></section>
+
+      <!-- Full-Screen 3D Custom Component Studio (/studio) -->
+      <section id="custom-studio-root" class="custom-studio-layer" aria-label="3D Custom Component Studio" hidden></section>
+    </div>
+  </body>
+</html>

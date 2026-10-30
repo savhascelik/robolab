@@ -1,0 +1,75 @@
+{
+  "name": "nebius-circuit-lab-api",
+  "description": "Nebius 3D Circuit & Edge AI Lab — Laravel API, RBAC, Study Groups & OpenAI-Compatible AI Gateway",
+  "version": "1.0.0",
+  "type": "docker-compose",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/nebius-circuit-lab.git",
+    "branch": "main"
+  },
+  "environment": {
+    "APP_NAME": "Nebius Circuit Lab API",
+    "APP_ENV": "production",
+    "APP_DEBUG": "false",
+    "DB_CONNECTION": "sqlite",
+    "CACHE_STORE": "database",
+    "SESSION_DRIVER": "database",
+    "QUEUE_CONNECTION": "database",
+    "AI_DEFAULT_PROVIDER": "nebius",
+    "NEBIUS_BASE_URL": "https://api.tokenfactory.nebius.com/v1"
+  },
+  "services": {
+    "app": {
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "ports": ["80:80"],
+      "healthcheck": {
+        "test": ["CMD", "curl", "-f", "http://localhost/api/health"],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3,
+        "start_period": "45s"
+      }
+    }
+  },
+  "volumes": {
+    "sqlite_data": {},
+    "storage_data": {}
+  },
+  "networks": {
+    "nebius-lab-network": {
+      "driver": "bridge"
+    }
+  },
+  "deployment": {
+    "strategy": "rolling",
+    "healthcheck": {
+      "enabled": true,
+      "path": "/api/health",
+      "timeout": 30,
+      "interval": 30,
+      "retries": 3
+    },
+    "hooks": {
+      "pre_deploy": [
+        "echo 'Starting Nebius Circuit Lab API deployment...'"
+      ],
+      "post_deploy": [
+        "docker-compose exec -T app php artisan migrate --force",
+        "docker-compose exec -T app php artisan db:seed --force",
+        "docker-compose exec -T app php artisan config:cache",
+        "docker-compose exec -T app php artisan route:cache",
+        "echo 'Deployment completed successfully!'"
+      ],
+      "rollback": [
+        "echo 'Rolling back deployment...'",
+        "docker-compose down",
+        "git checkout HEAD~1",
+        "docker-compose up -d"
+      ]
+    }
+  }
+}

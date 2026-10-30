@@ -1,0 +1,107 @@
+# ============================================================================
+# RoboLab / CircuitLab 3D — Root Repository .gitignore
+# ============================================================================
+
+# Environment & Secret Files (NEVER commit real keys)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Internal Strategy & Scratch Notes
+NEBIUS_INTELLIGENCE_AND_ZEN_STRATEGY.md
+mcpgate/
+backend/AGENTS.md
+backend/CLAUDE.md
+
+# Cryptographic Keys, Certificates & Credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+auth.json
+**/auth.json
+**/storage/*.key
+credentials.json
+service-account*.json
+
+# Databases & Local Dumps
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.sql
+*.sql.gz
+*.dump
+backend/database/*.sqlite*
+backend/storage/database/*.sqlite*
+
+# Dependencies & Build Artifacts (keep frontend/vendor/three.module.min.js tracked)
+node_modules/
+**/node_modules/
+backend/vendor/
+!frontend/vendor/
+!frontend/vendor/**
+dist/
+**/dist/
+build/
+**/build/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+
+# Framework Runtime, Logs & Cache
+*.log
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+backend/storage/logs/*
+!backend/storage/logs/.gitignore
+backend/storage/framework/cache/*
+!backend/storage/framework/cache/.gitignore
+backend/storage/framework/sessions/*
+!backend/storage/framework/sessions/.gitignore
+backend/storage/framework/testing/*
+!backend/storage/framework/testing/.gitignore
+backend/storage/framework/views/*
+!backend/storage/framework/views/.gitignore
+backend/storage/app/private/*
+!backend/storage/app/private/.gitignore
+backend/storage/pail/
+backend/bootstrap/cache/*.php
+
+# Testing & Coverage Caches
+.phpunit.result.cache
+**/.phpunit.result.cache
+.phpunit.cache/
+**/.phpunit.cache/
+coverage/
+**/coverage/
+
+# IDE, AI Assistants & OS Metadata
+.idea/
+.vscode/
+.cursor/
+.codex/
+.nova/
+.zed/
+.kiro/
+.gemini/
+_ide_helper.php
+_ide_helper_models.php
+.phpactor.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.bak
+*.tmp

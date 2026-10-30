@@ -1,0 +1,26 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies & Build Output
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs & Debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & OS Metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo

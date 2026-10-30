@@ -1,0 +1,13 @@
+{
+  "name": "learn-arduino-3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive 3D Arduino Uno Learning Platform & Simulator with GLSL Technical Outline Shader",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node tests/architecture.test.js",
+    "test:sabotage": "node tests/sabotage-verify.js"
+  }
+}
