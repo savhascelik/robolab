@@ -1059,7 +1059,7 @@ return {
         this.backendClient &&
         typeof this.backendClient.requestStudioModeling === 'function'
       ) {
-        // 2. Call Backend LLM (`POST /api/v1/ai/studio-modeling`)
+        // 2. Call Backend LLM (`POST /api/v1/ai/studio-modeling`) with full Studio tool catalog
         try {
           const llmRes = await this.backendClient.requestStudioModeling({
             prompt: cleanPrompt,
@@ -1069,6 +1069,13 @@ return {
               role: m.role,
               text: m.text
             })),
+            tools: STUDIO_MODELING_TOOL_DEFINITIONS,
+            toolResults: this.sdk.toolLog.slice(-6),
+            observationText: this.lastTestResult
+              ? `lastSelfTest: active=${Boolean(this.lastTestResult?.state?.active)} outputs=${JSON.stringify(this.lastTestResult?.outputVoltages || {})}`
+              : '',
+            round: 1,
+            maxRounds: 6,
             locale: i18n.getLocale()
           });
 
@@ -1083,7 +1090,22 @@ return {
                 (isTr ? '3B bileşen modeli LLM tarafından güncellendi.' : '3D component model updated by LLM.'),
               modelUsed: llmRes.meta?.model_used || null,
               executedTools: codeRes.executedTools,
+              toolCalls: llmRes.tool_calls || [],
               snapshot: codeRes.snapshot
+            };
+          } else if (llmRes && Array.isArray(llmRes.tool_calls) && llmRes.tool_calls.length > 0) {
+            const callsRes = this.sdk.executeToolCalls(llmRes.tool_calls);
+            executionResult = {
+              ok: true,
+              mode: 'backend_llm_tools',
+              thought: llmRes.thought || '',
+              summary:
+                llmRes.summary ||
+                (isTr ? '3B bileşen modeli LLM araçlarıyla güncellendi.' : '3D component model updated by LLM tools.'),
+              modelUsed: llmRes.meta?.model_used || null,
+              executedTools: callsRes.executedTools,
+              toolCalls: llmRes.tool_calls,
+              snapshot: callsRes.snapshot
             };
           } else {
             executionResult = await this.sdk.applyNaturalLanguageCommand(cleanPrompt);

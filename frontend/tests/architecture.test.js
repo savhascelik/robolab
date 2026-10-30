@@ -5953,6 +5953,35 @@ await test(
     assert.notEqual(themeService.getTheme(), initialTheme, 'ThemeService must toggle between dark and light');
     themeService.setTheme(initialTheme);
 
+    // 6. Verify executeArchitectPrompt sends full `tools` catalog (`STUDIO_MODELING_TOOL_DEFINITIONS`) + round metadata and synthesizes distinct Police Siren
+    let capturedStudioRequest = null;
+    studioPage.backendClient = {
+      async requestStudioModeling(payload) {
+        capturedStudioRequest = payload;
+        return {
+          ok: true,
+          round: payload.round,
+          max_rounds: payload.maxRounds,
+          thought: 'Polis sireni modülü için korna konisi ve flaşörler tasarlanıyor.',
+          summary: 'Polis Siren Modülü oluşturuldu.',
+          studio_code: '',
+          tool_calls: []
+        };
+      }
+    };
+    const sirenTurn = await studioPage.executeArchitectPrompt('bana bir polis siren komponenti yapar mısın');
+    assert.equal(sirenTurn.ok, true, 'Police siren architect prompt must succeed');
+    assert.ok(
+      Array.isArray(capturedStudioRequest?.tools) && capturedStudioRequest.tools.length >= 22,
+      'requestStudioModeling payload must include the 22+ StudioModelingSDK tool definitions'
+    );
+    assert.equal(capturedStudioRequest?.round, 1, 'requestStudioModeling payload must include round metadata');
+    assert.equal(
+      sirenTurn.draft.typeId,
+      'custom.police_siren_module',
+      'Police siren prompt must synthesize distinct custom.police_siren_module (not fire_truck_beacon)'
+    );
+
     // Restore locale
     i18n.setLocale(prevLocale);
     studioPage.destroy();

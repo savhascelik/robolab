@@ -15,14 +15,24 @@ class AiGatewayService
     ) {}
 
     /**
-     * Resolve the active AI model for a given task role, or override via model_id.
+     * Resolve the active AI model for a given task role, or override via model_id / model_slug.
      */
-    public function resolveModel(string $taskRole, ?int $preferredModelId = null): ?AiModel
+    public function resolveModel(string $taskRole, ?int $preferredModelId = null, ?string $preferredModelSlug = null): ?AiModel
     {
         if ($preferredModelId) {
             $found = AiModel::where('id', $preferredModelId)->where('is_active', true)->first();
             if ($found) {
                 return $found;
+            }
+        }
+
+        if ($preferredModelSlug !== null && trim($preferredModelSlug) !== '') {
+            $slug = trim($preferredModelSlug);
+            $byExactId = AiModel::where('is_active', true)
+                ->where('model_id', $slug)
+                ->first();
+            if ($byExactId) {
+                return $byExactId;
             }
         }
 
@@ -151,7 +161,7 @@ class AiGatewayService
 
                 $extraPayload = is_array($dbModel?->default_extra_payload) ? $dbModel->default_extra_payload : [];
                 $payload = array_merge([
-                    'max_tokens' => 2500,
+                    'max_tokens' => 4096,
                 ], $extraPayload, [
                     'model' => $modelId,
                     'messages' => [

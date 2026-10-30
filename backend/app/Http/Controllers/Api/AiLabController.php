@@ -1047,8 +1047,14 @@ CODE;
             'current_draft' => 'nullable|array',
             'snapshot' => 'nullable|array',
             'history' => 'nullable|array',
+            'tools' => 'nullable|array',
+            'tool_results' => 'nullable|array',
+            'observation_text' => 'nullable|string|max:64000',
+            'round' => 'nullable|integer|min:1|max:15',
+            'max_rounds' => 'nullable|integer|min:1|max:15',
             'locale' => 'nullable|string|max:10',
             'model_slug' => 'nullable|string|max:120',
+            'model_id' => 'nullable|integer',
         ]);
 
         /** @var \App\Models\User|null $user */
@@ -1061,9 +1067,11 @@ CODE;
                 ], 403);
             }
 
-            if (! $this->creditService->canMakeRequest($user, 0.25)) {
+            $creditCheck = $this->creditService->canMakeRequest($user, 0.25);
+            if (! ($creditCheck['allowed'] ?? false)) {
                 return response()->json([
-                    'message' => 'Insufficient AI credits for Studio Architect modeling.',
+                    'error' => $creditCheck['reason'] ?? 'insufficient_credits',
+                    'message' => $creditCheck['message'] ?? 'Insufficient AI credits for Studio Architect modeling.',
                     'credit_balance' => $this->creditService->getBalanceSummary($user),
                 ], 402);
             }
@@ -1071,12 +1079,24 @@ CODE;
 
         $prompt = trim((string) $validated['prompt']);
         $locale = strtolower(trim((string) ($validated['locale'] ?? 'tr')));
+        $round = (int) ($validated['round'] ?? 1);
+        $maxRounds = (int) ($validated['max_rounds'] ?? 6);
         $currentDraft = is_array($validated['current_draft'] ?? null)
             ? $validated['current_draft']
             : (is_array($validated['snapshot']['draft'] ?? null) ? $validated['snapshot']['draft'] : []);
         $partBounds = is_array($validated['snapshot']['partBounds'] ?? null)
             ? $validated['snapshot']['partBounds']
             : [];
+        $toolsCatalog = is_array($validated['tools'] ?? null)
+            ? array_slice($validated['tools'], 0, 30)
+            : [];
+        $historySlice = is_array($validated['history'] ?? null)
+            ? array_slice($validated['history'], -8)
+            : [];
+        $toolResults = is_array($validated['tool_results'] ?? null)
+            ? array_slice($validated['tool_results'], 0, 20)
+            : [];
+        $observationText = trim((string) ($validated['observation_text'] ?? ''));
 
         $compactDraft = [
             'typeId' => $currentDraft['typeId'] ?? 'custom.smart_module',
@@ -1094,9 +1114,10 @@ CODE;
 
         $systemPrompt = <<<'PROMPT'
 You are the CircuitLab 3D Studio Architect, an expert 3D CAD & Electronics Hardware Modeling AI inside `/studio`.
-You have full programmatic control over the live 3D component stage via the `studio` (`StudioModelingSDK`) object.
+You have full programmatic control over the live 3D component stage via the `studio` (`StudioModelingSDK`) object and its registered tool catalog.
 
 Your task is to design a complete, multi-part, physically realistic 3D electronic component (or 0-pin physical arena prop) OR modify the existing component according to the user's request.
+IMPORTANT: Always tailor the component's `typeId`, `name`, 3D parts (`parts[]`), materials, pins, and `evaluateScript` specifically to the user's latest prompt (`user_request`). Never repeat an old component if the user asks for a new device (e.g. if the user asks for a police siren, design a police siren module with an acoustic piezo horn cone, amplifier IC, blue/red flashers, and dual-tone frequency modulation).
 
 Respond ONLY with a valid JSON object matching this exact schema:
 {
@@ -1107,11 +1128,11 @@ Respond ONLY with a valid JSON object matching this exact schema:
 
 AVAILABLE `studio.*` SDK METHODS IN `studio_code`:
 1. `studio.setComponentMeta({ typeId, name, category, isEnvironmentProp, summary, dimensions: [width, height, depth] })`
-   - `typeId`: e.g. `"custom.fire_beacon_light"`, `"custom.ultrasonic_turret"`, `"custom.relay_driver"`
+   - `typeId`: e.g. `"custom.police_siren_module"`, `"custom.fire_beacon_light"`, `"custom.ultrasonic_turret"`, `"custom.relay_driver"`
    - `category`: `"actuators"` | `"sensors"` | `"custom"` | `"props"`
-   - `isEnvironmentProp`: `false` for electrical 3D ReactFlow Nodes with pins; `true` for 0-pin physical arena obstacles/props.
+   - `isEnvironmentProp`: `false` for electrical 3D components with pins; `true` for 0-pin physical arena obstacles/props.
 2. `studio.clearParts()`
-   - ALWAYS call `studio.clearParts()` right after `studio.setComponentMeta(...)` when the user asks to create/design/make a new component (e.g. "bana bir itfaiye ışığı yapar mısın", "design a siren", "create a sensor") so previous template parts are replaced cleanly.
+   - ALWAYS call `studio.clearParts()` right after `studio.setComponentMeta(...)` when the user asks to create/design/make a new component (e.g. "bana bir polis siren komponenti yapar mısın", "bana bir itfaiye ışığı yapar mısın", "create a sensor") so previous template parts are replaced cleanly.
    - Omit `studio.clearParts()` ONLY if the user asks to add/tweak a single part on the existing component.
 3. `studio.addPart({ id, primitive, size: [w, h, d], radius, innerRadius, attach: { to, side, gap, offset: [ox, oy, oz] }, materialPreset, color, repeat, mirror, partRole, spinAxis })`
    - `primitive`: `"rounded_box"` | `"box"` | `"cylinder"` | `"tube"` | `"sphere"` | `"capsule"` | `"cone"` | `"torus"` | `"lathe"`
@@ -1123,16 +1144,16 @@ AVAILABLE `studio.*` SDK METHODS IN `studio_code`:
      * `"fr4_pcb_red"` (Red Emergency/Power PCB)
      * `"fr4_pcb_blue"` (Blue Logic PCB)
      * `"ic_epoxy"` (Black IC Chip / Matte Housing)
-     * `"brushed_aluminum"` (Brushed Aluminum Chassis / Reflector / Heatsink)
+     * `"brushed_aluminum"` (Brushed Aluminum Chassis / Reflector / Acoustic Horn / Heatsink)
      * `"gold_pin"` (Gold Header / Brass Terminal)
-     * `"copper"` (Copper Coil / Winding)
+     * `"copper"` (Copper Coil / Winding / Acoustic Ring)
      * `"frosted_led"` (Diffused Translucent Dome / LED Lens — pass `color: "#EF4444"` for red, `"#3B82F6"` for blue, `"#F59E0B"` for amber, `"#10B981"` for green)
      * `"ceramic"` (SMD Ceramic Capacitor)
      * `"rubber_tire"` (Dark Elastomer)
      * `"matte_plastic"` (Industrial Enclosure)
    - `partRole` options (Reactive 3D Physics/Visual Animation during simulation):
-     * `"emissive"`: Glows brightly when `state.active` is `true`! ALWAYS set `partRole: "emissive"` on LEDs, emergency lights, fire-truck beacons, lamps, strobes, or displays.
-     * `"rotor"`: Spins continuously (`spinAxis: "y" | "x" | "z"`) when `state.active` is `true` (e.g., rotating emergency beacon reflector, cooling fan blades, radar turret, motor shaft).
+     * `"emissive"`: Glows brightly when `state.active` is `true`! ALWAYS set `partRole: "emissive"` on LEDs, emergency lights, beacons, lamps, strobes, or displays.
+     * `"rotor"`: Spins continuously (`spinAxis: "y" | "x" | "z"`) when `state.active` is `true` (e.g., rotating beacon reflector, siren acoustic modulator ring, cooling fan blades, radar turret, motor shaft).
      * `"pivot"`: Rotates to an angle based on signal/PWM (e.g. servo arm, barrier gate).
      * `"plunger"`: Moves linearly when energized (e.g. solenoid, relay armature).
    - `repeat`: `{ count: N, step: [sx, sy, sz] }`
@@ -1140,14 +1161,14 @@ AVAILABLE `studio.*` SDK METHODS IN `studio_code`:
 4. `studio.updatePart(partId, patch)` / `studio.removePart(partId)` / `studio.attachPart(partId, { to, side, gap, offset })` / `studio.setPartMaterial(partId, preset)` / `studio.setPartModifier(partId, { repeat, mirror, partRole, spinAxis })`
 5. `studio.addPinRow({ prefix: "P", count: 4, pitch: 2.54, edge: "bottom", names: ["VCC", "GND", "IN", "OUT"], directions: ["power", "ground", "input", "output"] })`
    - Or `studio.addPin({ name, direction, edge, protocol, nominalVoltage })`.
-   - For any component triggered by an incoming signal (e.g. emergency light, siren, relay, actuator, logic gate), include `IN` (input) and `OUT` (output) pins along with `VCC` and `GND`.
+   - For any component triggered by an incoming signal (e.g. emergency light, police siren, relay, actuator, logic gate), include `IN` (input) and `OUT` (output) pins along with `VCC` and `GND`.
 6. `studio.setEvaluateScript(codeString)`
    - Pure JavaScript body of `evaluate({ pins, state, dt, stageEnv, report })`. Do NOT use `window`, `document`, `fetch`, or `eval`.
    - Must read `pins.VCC?.voltage` and incoming signal `pins.IN?.voltage` (or `pins.SIG?.voltage`, `pins.TRIG?.voltage`, or `stageEnv.nearestObstacleCm` / `stageEnv.temperatureC` / `stageEnv.lightLux` / `stageEnv.gasPpm` / `stageEnv.humidityPct` / `stageEnv.potRatio` for sensors), set `state.active = Boolean(...)`, set `state.rpm = state.active ? 720 : 0` if there is a rotor, and return `{ outputs: { OUT: { voltage: outV, logicLevel: outV >= 2.5 ? 1 : 0 } }, state: { active: state.active, rpm: state.rpm } }`.
 7. `studio.setInternalDipoles([{ pinA: "VCC", pinB: "GND", resistance: 1000 }, { pinA: "IN", pinB: "GND", resistance: 1000 }])`
    - Optional conductive internal dipoles (`ConductiveDipole`) so `CircuitFlowSolver` forms closed electrical loops on the Workbench.
 8. `studio.setTestControls([{ key: "temperatureC", label: "Sıcaklık (°C)", min: -20, max: 100, step: 1, defaultValue: 25, unit: "°C" }])`
-   - Optional environmental test sliders for sensor components (`nearestObstacleCm`, `temperatureC`, `lightLux`, `gasPpm`, `humidityPct`, `potRatio`). Omit or pass `[]` for pure electrical/signal actuators (e.g. emergency light, siren, relay, fan, logic gate) so the Test Bench shows only pin voltage buttons.
+   - Optional environmental test sliders for sensor components (`nearestObstacleCm`, `temperatureC`, `lightLux`, `gasPpm`, `humidityPct`, `potRatio`). Omit or pass `[]` for pure electrical/signal actuators (e.g. emergency light, police siren, relay, fan, logic gate) so the Test Bench shows only pin voltage buttons.
 9. `studio.testComponentBehavior({ pinVoltages: { VCC: 5.0, GND: 0.0, IN: 5.0, TRIG: 5.0 }, distanceCm: 18, dt: 0.05 })`
    - Always call `studio.testComponentBehavior(...)` at the end of `studio_code` with voltages that activate the component so self-verification confirms `active=true`.
 PROMPT;
@@ -1155,8 +1176,24 @@ PROMPT;
         $userPrompt = json_encode([
             'user_request' => $prompt,
             'locale' => $locale,
+            'round' => $round,
+            'max_rounds' => $maxRounds,
+            'available_tools' => array_map(fn ($t) => [
+                'name' => $t['name'] ?? '',
+                'category' => $t['category'] ?? 'studio',
+                'description' => $t['description'] ?? '',
+            ], $toolsCatalog),
+            'conversation_history' => $historySlice,
+            'observation_text' => $observationText,
+            'previous_tool_results' => $toolResults,
             'current_component_snapshot' => $compactDraft,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $preferredModelId = isset($validated['model_id']) ? (int) $validated['model_id'] : null;
+        if (! $preferredModelId && ! empty($validated['model_slug'])) {
+            $resolvedBySlug = $this->aiGateway->resolveModel('architect', null, (string) $validated['model_slug']);
+            $preferredModelId = $resolvedBySlug?->id;
+        }
 
         try {
             $result = $this->aiGateway->chatJson(
@@ -1164,7 +1201,8 @@ PROMPT;
                 'architect',
                 $systemPrompt,
                 $userPrompt ?: $prompt,
-                fn () => $fallbackPayload
+                fn () => $fallbackPayload,
+                $preferredModelId
             );
         } catch (\Throwable $e) {
             $result = [
@@ -1192,15 +1230,52 @@ PROMPT;
             $data['summary'] = ($data['summary'] ?? '') ?: $fallbackPayload['summary'];
         }
 
+        $rawToolCalls = is_array($data['tool_calls'] ?? null) ? $data['tool_calls'] : [];
+        if (empty($rawToolCalls) && $studioCode !== '') {
+            if (preg_match_all('/\bstudio\.([a-zA-Z0-9_]+)\s*\(/', $studioCode, $matches)) {
+                foreach ($matches[1] as $methodName) {
+                    $rawToolCalls[] = [
+                        'name' => $methodName,
+                        'args' => [],
+                    ];
+                }
+            }
+        }
+
+        $partitioned = $this->functionFilter->partitionStudioToolCalls($user, $rawToolCalls);
+        $allowedToolCalls = $partitioned['allowed'];
+
+        if (empty($allowedToolCalls) && $studioCode !== '') {
+            $allowedToolCalls = [
+                [
+                    'name' => 'executeStudioCode',
+                    'args' => ['code' => $studioCode],
+                ],
+                [
+                    'name' => 'testComponentBehavior',
+                    'args' => [
+                        'pinVoltages' => ['VCC' => 5.0, 'GND' => 0.0, 'IN' => 5.0],
+                        'distanceCm' => 18,
+                        'dt' => 0.05,
+                    ],
+                ],
+            ];
+        }
+
         $balanceSummary = $user ? $this->creditService->getBalanceSummary($user) : null;
 
         return response()->json([
             'ok' => true,
+            'round' => $round,
+            'max_rounds' => $maxRounds,
             'model_used' => $result['model_used'] ?? 'studio-architect',
             'thought' => (string) ($data['thought'] ?? $fallbackPayload['thought']),
             'reply' => (string) ($data['summary'] ?? $data['reply'] ?? $fallbackPayload['summary']),
             'summary' => (string) ($data['summary'] ?? $fallbackPayload['summary']),
             'studio_code' => $studioCode,
+            'tool_calls' => $allowedToolCalls,
+            'rejected_tool_calls' => $partitioned['rejected'],
+            'tools_available_count' => count($toolsCatalog) ?: count(FunctionFilter::STUDIO_TOOL_NAMES),
             'charged_credits' => $result['credits_charged'],
             'credit_balance' => $balanceSummary,
             'meta' => [
@@ -1228,16 +1303,140 @@ PROMPT;
         $lower = mb_strtolower($prompt);
         $isTr = $locale !== 'en';
 
-        // 1. Fire-truck / Emergency Beacon / Strobe Lightbar ("itfaiye ışığı", "çakar", "siren", "tepe lambası", "beacon", "strobe")
+        // 1. Police Siren / Acoustic Horn ("polis", "siren", "alarm", "korna", "buzzer", "hoparlör")
+        if (
+            str_contains($lower, 'polis') ||
+            str_contains($lower, 'siren') ||
+            str_contains($lower, 'alarm') ||
+            str_contains($lower, 'korna') ||
+            str_contains($lower, 'piezo') ||
+            str_contains($lower, 'hoparlör') ||
+            str_contains($lower, 'hoparlor')
+        ) {
+            $studioCode = <<<'JS'
+studio.setComponentMeta({
+  typeId: 'custom.police_siren_module',
+  name: 'Polis Siren & Akustik Uyarı Modülü (Dual-Tone Wail/Yelp Siren)',
+  category: 'actuators',
+  isEnvironmentProp: false,
+  summary: 'IN pinine gelen tetik sinyali (>= 2.0V) ile çalışan akustik piezo korna konisi, döner rezonatör halkası ve mavi/kırmızı polis flaşör LED kubbeli 3B siren modülü.',
+  dimensions: [20, 2.0, 13]
+});
+studio.clearParts();
+studio.addPart({
+  id: 'pcb_base',
+  primitive: 'rounded_box',
+  size: [20, 2.0, 13],
+  radius: 0.6,
+  materialPreset: 'fr4_pcb_blue'
+});
+studio.addPart({
+  id: 'siren_amp_housing',
+  primitive: 'rounded_box',
+  size: [15.6, 1.8, 8.8],
+  radius: 0.4,
+  attach: { to: 'pcb_base', side: 'top', gap: 0, offset: [0, 0, -0.6] },
+  materialPreset: 'ic_epoxy'
+});
+studio.addPart({
+  id: 'acoustic_horn_cone',
+  primitive: 'cone',
+  size: [6.4, 4.6, 6.4],
+  attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [0, 0, 0] },
+  materialPreset: 'brushed_aluminum'
+});
+studio.addPart({
+  id: 'siren_resonator_rotor',
+  primitive: 'torus',
+  size: [5.0, 1.0, 5.0],
+  attach: { to: 'acoustic_horn_cone', side: 'top', gap: 0, offset: [0, -1.2, 0] },
+  materialPreset: 'copper',
+  partRole: 'rotor',
+  spinAxis: 'y'
+});
+studio.addPart({
+  id: 'police_blue_flasher',
+  primitive: 'capsule',
+  size: [3.4, 3.8, 3.4],
+  attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [-5.4, 0, 0] },
+  materialPreset: 'frosted_led',
+  color: '#3B82F6',
+  partRole: 'emissive'
+});
+studio.addPart({
+  id: 'police_red_flasher',
+  primitive: 'capsule',
+  size: [3.4, 3.8, 3.4],
+  attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [5.4, 0, 0] },
+  materialPreset: 'frosted_led',
+  color: '#EF4444',
+  partRole: 'emissive'
+});
+studio.addPart({
+  id: 'audio_driver_ic',
+  primitive: 'rounded_box',
+  size: [5.0, 1.2, 2.8],
+  radius: 0.2,
+  attach: { to: 'pcb_base', side: 'top', gap: 0, offset: [0, 0, 4.4] },
+  materialPreset: 'ic_epoxy'
+});
+studio.addPinRow({
+  prefix: 'P',
+  count: 4,
+  pitch: 2.54,
+  edge: 'bottom',
+  names: ['VCC', 'GND', 'IN', 'OUT'],
+  directions: ['power', 'ground', 'input', 'output']
+});
+studio.setInternalDipoles([
+  { pinA: 'VCC', pinB: 'GND', resistance: 1000 },
+  { pinA: 'IN', pinB: 'GND', resistance: 1000 }
+]);
+studio.setTestControls([]);
+studio.setEvaluateScript(`const vcc = Number(pins.VCC?.voltage ?? 5.0);
+const inV = Math.max(Number(pins.IN?.voltage ?? 0), Number(pins.TRIG?.voltage ?? 0));
+const isTriggered = vcc >= 2.5 && inV >= 2.0;
+state.sweep = ((Number(state.sweep) || 0) + (Number(dt) || 0.05) * 6.0) % (Math.PI * 2);
+state.active = isTriggered;
+state.rpm = isTriggered ? 1200 : 0;
+const sirenFreqHz = isTriggered ? Math.round(950 + Math.sin(state.sweep) * 420) : 0;
+const outV = isTriggered ? 5.0 : 0.0;
+return {
+  outputs: {
+    OUT: { voltage: outV, logicLevel: isTriggered ? 1 : 0 }
+  },
+  state: {
+    active: isTriggered,
+    rpm: state.rpm,
+    sirenFreqHz
+  }
+};`);
+studio.testComponentBehavior({
+  pinVoltages: { VCC: 5.0, GND: 0.0, IN: 5.0 },
+  distanceCm: 20,
+  dt: 0.05
+});
+JS;
+
+            return [
+                'thought' => $isTr
+                    ? 'Kullanıcı bir polis siren bileşeni istedi. Mavi FR4 PCB üzerine akustik amplifikatör gövdesi (`siren_amp_housing`), merkezde fırçalanmış alüminyum piezo korna konisi (`acoustic_horn_cone`), bakır rezonatör halkası (`partRole: "rotor"`), yanlarda mavi/kırmızı polis flaşör LED kubbeleri (`partRole: "emissive"`) ve çift tonlu (530Hz-1370Hz Wail/Yelp) frekans taramalı `evaluateScript` kurguluyorum.'
+                    : 'Designing a 3D Police Siren & Acoustic Horn module (`custom.police_siren_module`) with a brushed aluminum piezo horn cone, copper resonator rotor, blue/red strobe flashers, and dual-tone frequency sweep evaluation.',
+                'summary' => $isTr
+                    ? 'Polis Siren & Akustik Uyarı Modülü (`custom.police_siren_module`) 7 adet 3B CAD parçası (alüminyum akustik korna konisi, bakır rezonatör halkası, mavi/kırmızı polis flaşörleri, ses sürücü IC) ve Wail/Yelp frekans taramalı `evaluate()` mantığıyla oluşturuldu.'
+                    : 'Created Police Siren & Acoustic Warning Module (`custom.police_siren_module`) with 7 3D CAD parts, aluminum acoustic horn cone, copper resonator ring, blue/red flashers, and Wail/Yelp frequency sweep `evaluate()` logic.',
+                'studio_code' => $studioCode,
+            ];
+        }
+
+        // 2. Fire-truck / Emergency Beacon / Strobe Lightbar ("itfaiye ışığı", "çakar", "tepe lambası", "beacon", "strobe")
         if (
             str_contains($lower, 'itfaiye') ||
             str_contains($lower, 'çakar') ||
             str_contains($lower, 'cakar') ||
-            str_contains($lower, 'siren') ||
             str_contains($lower, 'beacon') ||
             str_contains($lower, 'strobe') ||
             str_contains($lower, 'ambulans') ||
-            str_contains($lower, 'polis') ||
             str_contains($lower, 'tepe lamba') ||
             str_contains($lower, 'uyarı ışığ') ||
             str_contains($lower, 'uyari isig') ||

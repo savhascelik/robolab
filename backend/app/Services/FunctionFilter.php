@@ -83,6 +83,117 @@ class FunctionFilter
     ];
 
     /**
+     * Registered 3D Custom Component Studio (`StudioModelingSDK.js`) tools exposed to
+     * `POST /api/v1/ai/studio-modeling`.
+     *
+     * @var array<int, string>
+     */
+    public const STUDIO_TOOL_NAMES = [
+        'getComponentSnapshot',
+        'getPartBounds',
+        'listMaterialPresets',
+        'setComponentMeta',
+        'setComponentDimensions',
+        'setCadScript',
+        'clearParts',
+        'addPart',
+        'updatePart',
+        'removePart',
+        'duplicatePart',
+        'attachPart',
+        'setPartMaterial',
+        'setPartModifier',
+        'addPin',
+        'addPinRow',
+        'updatePin',
+        'removePin',
+        'setInternalDipoles',
+        'setPinInputSignal',
+        'setPinVoltage',
+        'setEvaluateScript',
+        'setTestControls',
+        'stepComponentPhysics',
+        'testComponentBehavior',
+        'validateStudioComponent',
+        'captureViewportReport',
+        'saveComponentDraft',
+        'setCameraView',
+        'setXRayMode',
+        'selectPart',
+        'executeStudioCode',
+    ];
+
+    /**
+     * Checks whether the authenticated user has permission to invoke AI Hardware Architect / Copilot endpoints.
+     */
+    public function canUseAi(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        return $user->hasRole('admin')
+            || $user->hasPermissionTo('ai.copilot')
+            || $user->hasPermissionTo('ai.search_tools')
+            || $user->hasPermissionTo('ai.code_mode')
+            || $user->hasPermissionTo('ai.generate_circuit')
+            || $user->hasPermissionTo('components.synthesize_ai');
+    }
+
+    /**
+     * Partitions requested Studio Modeling SDK tool calls into `allowed` and `rejected` lists.
+     *
+     * @param  array<int, array<string, mixed>>  $toolCalls
+     * @return array{allowed: array<int, array<string, mixed>>, rejected: array<int, array<string, mixed>>}
+     */
+    public function partitionStudioToolCalls(?User $user, array $toolCalls): array
+    {
+        $canUseStudioAi = $this->canUseAi($user);
+        $allowed = [];
+        $rejected = [];
+
+        foreach ($toolCalls as $call) {
+            if (! is_array($call)) {
+                continue;
+            }
+
+            $rawName = trim((string) ($call['name'] ?? ''));
+            $normalizedName = str_starts_with($rawName, 'studio.')
+                ? substr($rawName, 7)
+                : $rawName;
+
+            if ($normalizedName === '' || ! in_array($normalizedName, self::STUDIO_TOOL_NAMES, true)) {
+                $rejected[] = [
+                    'name' => $rawName ?: 'unknown',
+                    'target_name' => $normalizedName ?: 'unknown',
+                    'reason' => "Unknown studio tool '{$rawName}'. Must be one of StudioModelingSDK tools.",
+                ];
+                continue;
+            }
+
+            if (! $canUseStudioAi) {
+                $rejected[] = [
+                    'name' => $rawName,
+                    'target_name' => $normalizedName,
+                    'reason' => "User lacks AI Studio permission for '{$normalizedName}'.",
+                ];
+                continue;
+            }
+
+            $call['name'] = $normalizedName;
+            $call['args'] = is_array($call['args'] ?? $call['arguments'] ?? null)
+                ? ($call['args'] ?? $call['arguments'])
+                : [];
+            $allowed[] = $call;
+        }
+
+        return [
+            'allowed' => array_values($allowed),
+            'rejected' => array_values($rejected),
+        ];
+    }
+
+    /**
      * Resolves both the outer tool name and any nested target inside `callCapability({ name, args })`,
      * matching `flownie-frontend/services/gemini/agent/capabilityGate.ts`.
      *

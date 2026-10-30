@@ -1,4 +1,5 @@
 import { DynamicComponentBuilder } from '../components/DynamicComponentBuilder.js';
+import { STUDIO_MODELING_TOOL_DEFINITIONS } from './StudioModelingSDK.js';
 import { i18n } from '../i18n/I18nService.js';
 
 /**
@@ -1134,17 +1135,41 @@ export class BackendApiClient {
    * @param {Array<object>} [params.history]
    * @param {string} [params.locale='tr']
    */
+  /**
+   * Calls the Backend LLM (`POST /api/v1/ai/studio-modeling`) to synthesize or modify
+   * a 3D custom component inside `/studio/<slug>` using `StudioModelingSDK` (`studio.*`) tools.
+   *
+   * @param {object} params
+   * @param {string} params.prompt
+   * @param {object} [params.currentDraft]
+   * @param {object} [params.snapshot]
+   * @param {Array} [params.history]
+   * @param {Array} [params.tools]
+   * @param {Array} [params.toolResults]
+   * @param {string} [params.observationText]
+   * @param {number} [params.round=1]
+   * @param {number} [params.maxRounds=6]
+   * @param {string} [params.locale='tr']
+   */
   async requestStudioModeling({
     prompt = '',
     currentDraft = null,
     snapshot = null,
     history = [],
+    tools = STUDIO_MODELING_TOOL_DEFINITIONS,
+    toolResults = [],
+    observationText = '',
+    round = 1,
+    maxRounds = 6,
     locale = 'tr'
   } = {}) {
     const cleanPrompt = String(prompt || '').trim();
     if (!cleanPrompt) {
       throw new Error('Studio Architect prompt is required.');
     }
+
+    const resolvedTools =
+      Array.isArray(tools) && tools.length > 0 ? tools : STUDIO_MODELING_TOOL_DEFINITIONS;
 
     const data = await this._request('/ai/studio-modeling', {
       method: 'POST',
@@ -1153,6 +1178,11 @@ export class BackendApiClient {
         current_draft: currentDraft || snapshot?.draft || null,
         snapshot: snapshot || null,
         history: Array.isArray(history) ? history.slice(-8) : [],
+        tools: resolvedTools,
+        tool_results: Array.isArray(toolResults) ? toolResults : [],
+        observation_text: String(observationText || ''),
+        round: Number(round) || 1,
+        max_rounds: Number(maxRounds) || 6,
         locale: String(locale || 'tr'),
         model_slug: this.selectedModelSlug
       }
@@ -1161,9 +1191,14 @@ export class BackendApiClient {
     const body = data?.data || data || {};
     return {
       ok: Boolean(body.ok ?? true),
+      round: body.round ?? round,
+      max_rounds: body.max_rounds ?? maxRounds,
       thought: body.thought || '',
       summary: body.summary || '',
       studio_code: body.studio_code || body.code || '',
+      tool_calls: Array.isArray(body.tool_calls) ? body.tool_calls : [],
+      rejected_tool_calls: Array.isArray(body.rejected_tool_calls) ? body.rejected_tool_calls : [],
+      tools_available_count: body.tools_available_count ?? resolvedTools.length,
       meta: body.meta || {},
       charged_credits: body.charged_credits ?? 0,
       credit_balance: body.credit_balance || null

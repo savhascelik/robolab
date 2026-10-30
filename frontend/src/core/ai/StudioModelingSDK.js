@@ -37,7 +37,13 @@ export const STUDIO_MODELING_TOOL_DEFINITIONS = Object.freeze([
     name: 'setComponentMeta',
     category: 'cad',
     signature: 'studio.setComponentMeta({ typeId, name, category, isEnvironmentProp, dimensions, obstacleProfile })',
-    description: 'Updates component identity, archetype (3D ReactFlow Node vs 0-Pin Prop), and base dimensions.'
+    description: 'Updates component identity, archetype (3D Electronic Component vs 0-Pin Prop), and base dimensions.'
+  },
+  {
+    name: 'clearParts',
+    category: 'cad',
+    signature: 'studio.clearParts({ keepBase })',
+    description: 'Clears existing 3D CAD parts[] before constructing a new component from scratch.'
   },
   {
     name: 'addPart',
@@ -1613,6 +1619,53 @@ return {
   }
 
   /**
+   * Executes an array of structured Studio tool calls (`[{ name, args }]`) returned by
+   * `POST /api/v1/ai/studio-modeling`.
+   * @param {Array<{ name: string, args?: any }>} toolCalls
+   */
+  executeToolCalls(toolCalls = []) {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return { ok: false, executedTools: [] };
+    }
+
+    const startHistoryLen = this.toolHistory.length;
+    for (const call of toolCalls) {
+      if (!call || typeof call !== 'object') continue;
+      const rawName = String(call.name || '').trim();
+      const methodName = rawName.startsWith('studio.') ? rawName.slice(7) : rawName;
+      const args = call.args ?? call.arguments ?? {};
+
+      if (methodName === 'executeStudioCode' && typeof args?.code === 'string') {
+        this.executeStudioCode(args.code);
+        continue;
+      }
+
+      if (typeof this[methodName] === 'function') {
+        if (methodName === 'updatePart' && args?.partId) {
+          this.updatePart(args.partId, args.patch || args);
+        } else if (methodName === 'attachPart' && args?.partId) {
+          this.attachPart(args.partId, args.attach || args);
+        } else if (methodName === 'setPartMaterial' && args?.partId) {
+          this.setPartMaterial(args.partId, args.material || args.preset || args);
+        } else if (methodName === 'setPartModifier' && args?.partId) {
+          this.setPartModifier(args.partId, args.modifier || args);
+        } else if (methodName === 'setEvaluateScript') {
+          this.setEvaluateScript(typeof args === 'string' ? args : args?.code || args?.script || '');
+        } else {
+          this[methodName](args);
+        }
+      }
+    }
+
+    const executedTools = this.toolHistory.slice(startHistoryLen);
+    return {
+      ok: executedTools.length > 0,
+      executedTools,
+      snapshot: this.getComponentSnapshot({ recordTool: false })
+    };
+  }
+
+  /**
    * Interprets a natural-language modeling & behavior instruction (or `studio.*` Code Mode snippet),
    * executes granular SDK calls to build/modify/texture/wire the 3D component, and runs
    * `testComponentBehavior()` to self-verify the result.
@@ -1644,16 +1697,120 @@ return {
     const startHistoryLen = this.toolHistory.length;
     const actionsSummary = [];
 
-    // 1. Check for full archetype / template synthesis requests
+    // 1A. Police Siren / Acoustic Horn ("polis", "siren", "alarm", "korna", "piezo", "hoparlör")
     if (
+      lower.includes('polis') ||
+      lower.includes('siren') ||
+      lower.includes('alarm') ||
+      lower.includes('korna') ||
+      lower.includes('piezo') ||
+      lower.includes('hoparlör') ||
+      lower.includes('hoparlor')
+    ) {
+      this.setComponentMeta({
+        typeId: 'custom.police_siren_module',
+        name: 'Polis Siren & Akustik Uyarı Modülü (Dual-Tone Wail/Yelp Siren)',
+        category: 'actuators',
+        isEnvironmentProp: false,
+        summary:
+          'IN pinine gelen tetik sinyali (>= 2.0V) ile çalışan akustik piezo korna konisi, döner rezonatör halkası ve mavi/kırmızı polis flaşör LED kubbeli 3B siren modülü.',
+        dimensions: [20, 2.0, 13]
+      });
+      this.clearParts();
+      this.addPart({
+        id: 'pcb_base',
+        primitive: 'rounded_box',
+        size: [20, 2.0, 13],
+        radius: 0.6,
+        materialPreset: 'fr4_pcb_blue'
+      });
+      this.addPart({
+        id: 'siren_amp_housing',
+        primitive: 'rounded_box',
+        size: [15.6, 1.8, 8.8],
+        radius: 0.4,
+        attach: { to: 'pcb_base', side: 'top', gap: 0, offset: [0, 0, -0.6] },
+        materialPreset: 'ic_epoxy'
+      });
+      this.addPart({
+        id: 'acoustic_horn_cone',
+        primitive: 'cone',
+        size: [6.4, 4.6, 6.4],
+        attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [0, 0, 0] },
+        materialPreset: 'brushed_aluminum'
+      });
+      this.addPart({
+        id: 'siren_resonator_rotor',
+        primitive: 'torus',
+        size: [5.0, 1.0, 5.0],
+        attach: { to: 'acoustic_horn_cone', side: 'top', gap: 0, offset: [0, -1.2, 0] },
+        materialPreset: 'copper',
+        partRole: 'rotor',
+        spinAxis: 'y'
+      });
+      this.addPart({
+        id: 'police_blue_flasher',
+        primitive: 'capsule',
+        size: [3.4, 3.8, 3.4],
+        attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [-5.4, 0, 0] },
+        materialPreset: 'frosted_led',
+        color: '#3B82F6',
+        partRole: 'emissive'
+      });
+      this.addPart({
+        id: 'police_red_flasher',
+        primitive: 'capsule',
+        size: [3.4, 3.8, 3.4],
+        attach: { to: 'siren_amp_housing', side: 'top', gap: 0, offset: [5.4, 0, 0] },
+        materialPreset: 'frosted_led',
+        color: '#EF4444',
+        partRole: 'emissive'
+      });
+      this.addPart({
+        id: 'audio_driver_ic',
+        primitive: 'rounded_box',
+        size: [5.0, 1.2, 2.8],
+        radius: 0.2,
+        attach: { to: 'pcb_base', side: 'top', gap: 0, offset: [0, 0, 4.4] },
+        materialPreset: 'ic_epoxy'
+      });
+      this.addPinRow({
+        prefix: 'P',
+        count: 4,
+        pitch: 2.54,
+        edge: 'bottom',
+        names: ['VCC', 'GND', 'IN', 'OUT'],
+        directions: ['power', 'ground', 'input', 'output']
+      });
+      this.setEvaluateScript(`const vcc = Number(pins.VCC?.voltage ?? 5.0);
+const inV = Math.max(Number(pins.IN?.voltage ?? 0), Number(pins.TRIG?.voltage ?? 0));
+const isTriggered = vcc >= 2.5 && inV >= 2.0;
+state.sweep = ((Number(state.sweep) || 0) + (Number(dt) || 0.05) * 6.0) % (Math.PI * 2);
+state.active = isTriggered;
+state.rpm = isTriggered ? 1200 : 0;
+const sirenFreqHz = isTriggered ? Math.round(950 + Math.sin(state.sweep) * 420) : 0;
+const outV = isTriggered ? 5.0 : 0.0;
+return {
+  outputs: {
+    OUT: { voltage: outV, logicLevel: isTriggered ? 1 : 0 }
+  },
+  state: {
+    active: isTriggered,
+    rpm: state.rpm,
+    sirenFreqHz
+  }
+};`);
+      actionsSummary.push(
+        'Polis Siren & Akustik Uyarı Modülü (custom.police_siren_module): alüminyum korna konisi, bakır rezonatör halkası, mavi/kırmızı flaşör kubbeler ve Wail/Yelp frekans taramalı sinyal devresi oluşturuldu'
+      );
+    } else if (
+      // 1B. Fire-truck / Emergency Beacon / Strobe Lightbar ("itfaiye ışığı", "çakar", "tepe lambası")
       lower.includes('itfaiye') ||
       lower.includes('çakar') ||
       lower.includes('cakar') ||
-      lower.includes('siren') ||
       lower.includes('beacon') ||
       lower.includes('strobe') ||
       lower.includes('ambulans') ||
-      lower.includes('polis') ||
       lower.includes('tepe lamba') ||
       lower.includes('lightbar') ||
       ((lower.includes('ışık') || lower.includes('isik') || lower.includes('lamba')) &&
