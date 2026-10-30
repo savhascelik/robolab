@@ -827,6 +827,26 @@ export class BackendApiClient {
             (packageSlugOrId === 'maker-pro-2000' && p.slug === 'maker-2000')
         ) || this._offlinePackages[0];
       const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+      const planId = pkg.whop_plan_id || `plan_${pkg.slug}`;
+      const checkoutSession = {
+        plan_id: planId,
+        product_id: pkg.whop_product_id || null,
+        environment: 'production',
+        buyer_email: this.user?.email || '',
+        return_url: `${typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://robolab.createforkids.com'}/workbench?checkout_order=${orderNumber}&payment=success`,
+        webhook_url: `${this.baseUrl}/webhooks/whop`,
+        metadata: {
+          type: 'ai_credit_topup',
+          order_id: String(orderNumber),
+          order_number: String(orderNumber),
+          user_id: String(this.user?.id || 'guest'),
+          user_email: String(this.user?.email || ''),
+          package_id: String(pkg.id || ''),
+          package_slug: String(pkg.slug || ''),
+          credits: String(pkg.credits || pkg.total_credits || 0),
+          bonus_credits: String(pkg.bonus_credits || 0)
+        }
+      };
       const order = {
         uuid: orderNumber,
         order_number: orderNumber,
@@ -835,9 +855,16 @@ export class BackendApiClient {
         credits_amount: pkg.total_credits,
         credits_granted: pkg.total_credits,
         amount_usd: pkg.price_usd,
-        checkout_url: `https://whop.com/checkout/${pkg.whop_plan_id}?d2c=true&metadata[order_number]=${orderNumber}`
+        checkout_url: `https://whop.com/checkout/${planId}?d2c=true&metadata[order_number]=${orderNumber}`
       };
-      return { ok: true, order, checkout_url: order.checkout_url };
+      if (!this._offlineOrders) this._offlineOrders = new Map();
+      this._offlineOrders.set(orderNumber, order);
+      return {
+        ok: true,
+        order,
+        checkout_url: order.checkout_url,
+        checkout_session: checkoutSession
+      };
     }
 
     const data = await this._request('/credits/checkout', {
@@ -847,6 +874,7 @@ export class BackendApiClient {
     return {
       ok: true,
       ...data,
+      checkout_session: data.checkout_session || null,
       order: data.order
         ? {
             ...data.order,
@@ -855,6 +883,41 @@ export class BackendApiClient {
           }
         : null
     };
+  }
+
+  async checkCreditOrderStatus(orderNumber) {
+    if (!orderNumber || !this.isAuthenticated()) {
+      return { ok: false, completed: false, order: null };
+    }
+    if (!this.fetchImpl) {
+      const order = this._offlineOrders?.get(orderNumber) || {
+        order_number: orderNumber,
+        status: 'pending'
+      };
+      return {
+        ok: true,
+        order,
+        status: order.status,
+        completed: order.status === 'completed',
+        credits: this.getCredits()
+      };
+    }
+    try {
+      const data = await this._request(`/credits/orders/${encodeURIComponent(orderNumber)}`, {
+        method: 'GET'
+      });
+      this._syncCreditBalanceFromPayload(data);
+      const completed = Boolean(data.completed || data.order?.status === 'completed');
+      return {
+        ok: true,
+        order: data.order || null,
+        status: data.status || data.order?.status || 'pending',
+        completed,
+        credits: this.getCredits()
+      };
+    } catch {
+      return { ok: false, completed: false, order: null };
+    }
   }
 
   // ---------------------------------------------------------------------------

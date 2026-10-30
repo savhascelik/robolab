@@ -54,6 +54,37 @@ class WhopService
     }
 
     /**
+     * Build Whop Elements (Beta) embedded modal checkout configuration (`checkout_session`).
+     * Follows https://docs.whop.com/elements/beta/getting-started
+     */
+    public function buildEmbeddedCheckoutConfig(AiCreditPackage $package, User $user, AiCreditOrder $order): array
+    {
+        $planId = $package->whop_plan_id ?: "plan_{$package->slug}";
+        $returnUrl = "{$this->frontendUrl}/workbench?checkout_order={$order->order_number}&payment=success";
+        $webhookUrl = rtrim((string) config('app.url', $this->frontendUrl), '/') . '/api/v1/webhooks/whop';
+
+        return [
+            'plan_id' => $planId,
+            'product_id' => $package->whop_product_id,
+            'environment' => (string) config('services.whop.environment', 'production'),
+            'buyer_email' => (string) $user->email,
+            'return_url' => $returnUrl,
+            'webhook_url' => $webhookUrl,
+            'metadata' => [
+                'type' => 'ai_credit_topup',
+                'order_id' => (string) $order->id,
+                'order_number' => (string) $order->order_number,
+                'user_id' => (string) $user->id,
+                'user_email' => (string) $user->email,
+                'package_id' => (string) $package->id,
+                'package_slug' => (string) $package->slug,
+                'credits' => (string) ((float) $package->credits),
+                'bonus_credits' => (string) ((float) $package->bonus_credits),
+            ],
+        ];
+    }
+
+    /**
      * Verify Whop HMAC-SHA256 webhook signature (supports Standard Webhooks v1,<base64> and hex HMAC).
      */
     public function verifyWebhookSignature(string $rawPayload, ?string $signatureHeader, ?string $webhookId = null, ?string $webhookTimestamp = null): bool
@@ -69,13 +100,25 @@ class WhopService
         // 1. Standard Webhooks v1,<base64> signature when webhook-id and webhook-timestamp are present
         if ($webhookId && $webhookTimestamp && str_contains($signatureHeader, 'v1,')) {
             $signedContent = "{$webhookId}.{$webhookTimestamp}.{$rawPayload}";
-            $secretKey = str_starts_with($this->webhookSecret, 'whsec_')
-                ? base64_decode(substr($this->webhookSecret, 6))
-                : $this->webhookSecret;
+            $candidateKeys = [$this->webhookSecret];
+            if (str_starts_with($this->webhookSecret, 'whsec_')) {
+                $decoded = base64_decode(substr($this->webhookSecret, 6), true);
+                if ($decoded !== false) {
+                    $candidateKeys[] = $decoded;
+                }
+            }
+            if (str_starts_with($this->webhookSecret, 'ws_')) {
+                $candidateKeys[] = substr($this->webhookSecret, 3);
+            }
 
-            $expectedBase64 = 'v1,' . base64_encode(hash_hmac('sha256', $signedContent, $secretKey, true));
-            if (hash_equals($expectedBase64, trim($signatureHeader))) {
-                return true;
+            $providedSignatures = preg_split('/\s+/', trim($signatureHeader)) ?: [trim($signatureHeader)];
+            foreach ($candidateKeys as $secretKey) {
+                $expectedBase64 = 'v1,' . base64_encode(hash_hmac('sha256', $signedContent, $secretKey, true));
+                foreach ($providedSignatures as $providedSig) {
+                    if ($providedSig !== '' && hash_equals($expectedBase64, $providedSig)) {
+                        return true;
+                    }
+                }
             }
         }
 

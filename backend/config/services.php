@@ -42,6 +42,8 @@ return [
 
     'whop' => [
         'webhook_secret' => env('WHOP_WEBHOOK_SECRET', ''),
+        'environment' => env('WHOP_ENVIRONMENT', 'production'),
+        'app_id' => env('WHOP_APP_ID', ''),
     ],
 
 ];

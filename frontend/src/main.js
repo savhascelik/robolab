@@ -18,6 +18,8 @@ import { CreditStoreModal } from './ui/workbench/CreditStoreModal.js';
 import { LandingShowcaseController } from './ui/landing/LandingShowcaseController.js';
 import { CustomComponentStudioPage } from './ui/studio/CustomComponentStudioPage.js';
 import { AppRouter } from './core/router/AppRouter.js';
+import { i18n } from './core/i18n/I18nService.js';
+import { userSettings } from './core/settings/UserSettingsService.js';
 
 /**
  * CircuitLab 3D — Canvas-First Spatial Hardware Workbench Bootstrapper.
@@ -30,6 +32,21 @@ import { AppRouter } from './core/router/AppRouter.js';
  * - On-demand drawers & modals (`CodeDrawerController`, `ComponentPalettePopover`, `ProjectsAndGroupsModal`, `AuthAndSettingsModal`, `DiagnosticHudCard`)
  */
 export function initSpatialWorkbench() {
+  const initialLocale = userSettings.get('ui.locale') || 'en';
+  i18n.setLocale(initialLocale);
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.lang = initialLocale;
+  }
+  i18n.onChange(({ locale }) => {
+    if (!locale) return;
+    if (userSettings.get('ui.locale') !== locale) {
+      userSettings.set('ui.locale', locale);
+    }
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.lang = locale;
+    }
+  });
+
   registerAllHardware(hardwareRegistry);
   themeService.applyToDocument();
 
@@ -757,6 +774,20 @@ export function initSpatialWorkbench() {
 
   runtime.onFlowUpdate(handleFlowUpdate);
   stage.onFlowSolved = handleFlowUpdate;
+
+  // Handle checkout return URL verification (?checkout_order=ORD-... or ?whop_order=ORD-...)
+  if (typeof window !== 'undefined' && window.location?.search) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const returnOrderNumber = params.get('checkout_order') || params.get('whop_order');
+      if (returnOrderNumber && typeof creditStoreModal.verifyPendingOrder === 'function') {
+        creditStoreModal.open();
+        creditStoreModal.verifyPendingOrder({ orderNumber: returnOrderNumber, pollAttempts: 6, intervalMs: 1200 });
+      }
+    } catch {
+      // Ignore malformed URL query
+    }
+  }
 
   // Global keyboard shortcuts (Ctrl+E = Code Drawer, Escape = Close overlays)
   window.addEventListener('keydown', (e) => {

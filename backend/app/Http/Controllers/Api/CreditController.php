@@ -37,6 +37,7 @@ class CreditController extends Controller
                     'is_popular' => $pkg->is_popular,
                     'description' => $pkg->description,
                     'features' => $pkg->features ?? [],
+                    'whop_plan_id' => $pkg->whop_plan_id ?: "plan_{$pkg->slug}",
                 ];
             });
 
@@ -128,10 +129,41 @@ class CreditController extends Controller
         ]);
 
         $checkoutUrl = $this->whopService->createCreditCheckoutUrl($package, $user, $order);
+        $checkoutSession = $this->whopService->buildEmbeddedCheckoutConfig($package, $user, $order);
 
         return response()->json([
             'order' => $order->load('package'),
             'checkout_url' => $checkoutUrl,
+            'checkout_session' => $checkoutSession,
         ], 201);
+    }
+
+    public function orderStatus(Request $request, string $orderNumber): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $order = $user->creditOrders()
+            ->with('package')
+            ->where('order_number', $orderNumber)
+            ->first();
+
+        if (! $order) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'order_not_found',
+                'message' => 'Credit order not found.',
+            ], 404);
+        }
+
+        $summary = $this->creditService->getBalanceSummary($user->fresh());
+
+        return response()->json([
+            'ok' => true,
+            'order' => $order,
+            'status' => $order->status,
+            'completed' => $order->status === 'completed',
+            'credits' => $summary,
+        ]);
     }
 }

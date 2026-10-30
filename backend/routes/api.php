@@ -65,6 +65,7 @@ Route::prefix('v1')->group(function () {
         // AI Credits & Whop Top-Up Routes
         Route::get('/credits/balance', [CreditController::class, 'balance']);
         Route::get('/credits/orders', [CreditController::class, 'orders']);
+        Route::get('/credits/orders/{orderNumber}', [CreditController::class, 'orderStatus']);
         Route::post('/credits/checkout', [CreditController::class, 'createCheckout']);
 
         // Open Study Groups (Everyone can create & join)

@@ -3146,6 +3146,39 @@ await test('34. Security & Multi-Round Agent Loop — Guest Zero-Credit Isolatio
     'CreditStoreModal must NEVER contain a sandbox self-topup button (#whop-simulate-fulfill-btn)'
   );
 
+  // 34f. Selecting a package opens the embedded checkout mount inside the modal and verifies via backend order status
+  const selectedOrder = await creditModal.handleSelectPackage('maker-2000');
+  assert.ok(selectedOrder && selectedOrder.order_number.startsWith('ORD-'), 'handleSelectPackage must return pending order');
+  assert.ok(
+    mockModalRoot.innerHTML.includes('credit-embedded-checkout-mount') &&
+      mockModalRoot.innerHTML.includes('verify-order-btn'),
+    'CreditStoreModal must render embedded checkout mount (#credit-embedded-checkout-mount) and verify button (#verify-order-btn)'
+  );
+  assert.equal(
+    mockModalRoot.innerHTML.toLowerCase().includes('whop'),
+    false,
+    'CreditStoreModal must NEVER expose internal payment gateway name (Whop) even during active embedded checkout'
+  );
+
+  // Simulate backend webhook fulfilling the order in the database
+  selectedOrder.status = 'completed';
+  apiClient.setCredits({
+    promotional_credits: 0,
+    purchased_credits: 4600,
+    available_credits: 4600
+  });
+  const verifyRes = await creditModal.verifyPendingOrder({
+    orderNumber: selectedOrder.order_number,
+    pollAttempts: 1,
+    intervalMs: 10
+  });
+  assert.equal(verifyRes.completed, true, 'verifyPendingOrder must detect completed order status from backend');
+  assert.equal(creditModal.pendingOrder, null, 'Completed order must clear pendingOrder state');
+  assert.ok(
+    mockModalRoot.innerHTML.includes('4600.0'),
+    'CreditStoreModal must update credit balance display after backend order verification'
+  );
+
   creditModal.destroy();
   topPill.destroy();
   runtime.stop({ resetPins: true });

@@ -31,12 +31,12 @@ function deepMerge(target, source) {
  * 5. Inline `{ tr, en }` object resolution (`pick()`) and reactive `EventBus` notifications
  */
 export class I18nService {
-  constructor(defaultLocale = 'tr') {
+  constructor(defaultLocale = 'en') {
     this.dictionaries = {
       tr: deepMerge(deepMerge(trLocale, hardwareCatalogI18n.tr), electricalCatalogI18n.tr),
       en: deepMerge(deepMerge(enLocale, hardwareCatalogI18n.en), electricalCatalogI18n.en)
     };
-    this.currentLocale = this.dictionaries[defaultLocale] ? defaultLocale : 'tr';
+    this.currentLocale = this.dictionaries[defaultLocale] ? defaultLocale : 'en';
   }
 
   /**
@@ -242,4 +242,4 @@ export class I18nService {
   }
 }
 
-export const i18n = new I18nService('tr');
+export const i18n = new I18nService('en');

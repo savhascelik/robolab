@@ -26,7 +26,7 @@ export const DEFAULT_USER_SETTINGS = Object.freeze({
   'stage.soundEnabled': true,
   'stage.hostBoardOverride': 'auto',
   'ui.catalogDockMode': 'modal',
-  'ui.locale': 'tr'
+  'ui.locale': 'en'
 });
 
 /**
