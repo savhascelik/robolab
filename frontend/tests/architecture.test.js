@@ -5988,4 +5988,186 @@ await test(
   }
 );
 
+await test(
+  '50. Faz 20: Studio Agentic Step-by-Step Tool Cards, Verification MiniTable & User Dashboard (/workspace) Saved Custom 3D Components Management',
+  async () => {
+    const { CustomComponentStudioPage } = await import(
+      '../src/ui/studio/CustomComponentStudioPage.js'
+    );
+    const prevLocale = i18n.getLocale();
+    i18n.setLocale('tr');
+
+    const reg = new ComponentRegistry();
+    registerAllHardware(reg);
+
+    const mockContainer = {
+      hidden: true,
+      innerHTML: '',
+      querySelector: () => null,
+      addEventListener: () => {}
+    };
+
+    const studioPage = new CustomComponentStudioPage({
+      container: mockContainer,
+      registry: reg,
+      backendClient: {
+        async requestStudioModeling(payload) {
+          return {
+            ok: true,
+            round: payload.round || 1,
+            max_rounds: payload.maxRounds || 6,
+            thought: 'İtfaiye çakar lambası için kırmızı ve mavi kubbe ile dönen reflektör sentezleniyor.',
+            summary: 'İtfaiye çakar tepe lambası 3B modeli ve sinyal kodu tamamlandı.',
+            studio_code: '',
+            tool_calls: []
+          };
+        }
+      },
+      themeService
+    });
+    studioPage._mountStudioCanvas = () => {};
+    studioPage.open({ componentSlug: 'threshold-sensor-node' });
+
+    const beaconTurn = await studioPage.executeArchitectPrompt(
+      'Bana kendisine gelen sinyalle çakarlı kırmızı-mavi yanan ve ortasında reflektörü dönen bir itfaiye ışığı yapar mısın?'
+    );
+    assert.equal(beaconTurn.ok, true);
+    assert.ok(beaconTurn.tools.length >= 6, 'Beacon synthesis must record multiple step-by-step SDK tool calls');
+    assert.ok(beaconTurn.miniTable && Array.isArray(beaconTurn.miniTable.rows), 'Turn must include a Verification MiniTable');
+    assert.equal(beaconTurn.miniTable.rows.length, 6, 'Verification MiniTable must include 6 engineering rows');
+
+    const studioHtml = mockContainer.innerHTML;
+    assert.equal(
+      studioHtml.includes('data-testid="studio-agent-progress"') &&
+        studioHtml.includes('data-testid="studio-agent-round-pill"') &&
+        studioHtml.includes('TUR 1/6'),
+      true,
+      'Studio Architect panel must render the multi-round agent progress bar with TUR 1/6 pill'
+    );
+    assert.equal(
+      studioHtml.includes('data-testid="studio-tool-steps-list"') &&
+        studioHtml.includes('data-testid="studio-tool-step-card"') &&
+        studioHtml.includes('#1') &&
+        studioHtml.includes('3B CAD') &&
+        studioHtml.includes('data-select-part="red_strobe_dome"'),
+      true,
+      'Studio Architect panel must render numbered step-by-step tool cards with phase badges and 3B Seç buttons'
+    );
+    assert.equal(
+      studioHtml.includes('data-testid="studio-verify-minitable"') &&
+        studioHtml.includes('Bileşen Kimliği') &&
+        studioHtml.includes('3B CAD Parça Ağacı'),
+      true,
+      'Studio Architect panel must render the technical Verification MiniTable inside the assistant turn'
+    );
+
+    // Save the custom component so it is registered and persisted
+    await studioPage.saveStudioComponent({ spawnToWorkbench: false });
+
+    // Verify User Dashboard (/workspace -> ProjectsAndGroupsModal) lists the saved Custom 3D Component
+    const modalRoot = {
+      hidden: true,
+      children: [],
+      appendChild(el) {
+        this.children.push(el);
+      },
+      removeAttribute() {},
+      setAttribute() {},
+      querySelector: () => null
+    };
+
+    const prevDoc = globalThis.document;
+    globalThis.document = {
+      body: { appendChild() {} },
+      createElement(tag) {
+        return {
+          tagName: tag.toUpperCase(),
+          className: '',
+          dataset: {},
+          innerHTML: '',
+          classList: {
+            add() {},
+            remove() {}
+          },
+          querySelector: () => null,
+          querySelectorAll: () => [],
+          addEventListener() {},
+          remove() {}
+        };
+      }
+    };
+
+    let openedStudioSlug = null;
+    let spawnedTypeId = null;
+
+    try {
+      const apiClient = new BackendApiClient({ fetchImpl: null });
+      await apiClient.saveCustomComponent(beaconTurn.draft);
+
+      const dashboardModal = new ProjectsAndGroupsModal({
+        rootEl: modalRoot,
+        stage: {
+          spawnIndependentComponent(typeId) {
+            spawnedTypeId = typeId;
+            return { id: 'spawned_beacon_1', typeId };
+          }
+        },
+        registry: reg,
+        apiClient,
+        onOpenStudio: (slug) => {
+          openedStudioSlug = slug;
+        }
+      }).mount();
+
+      await dashboardModal.open('workspaces', { fromRouter: true });
+      const wsHtml = dashboardModal._containerEl.innerHTML;
+      assert.equal(
+        wsHtml.includes('data-testid="tab-custom-components"') &&
+          wsHtml.includes('Özel 3B Bileşenlerim'),
+        true,
+        '/workspace navigation tabs must include the "Özel 3B Bileşenlerim" tab'
+      );
+      assert.equal(
+        wsHtml.includes('data-testid="dashboard-custom-components-section"') &&
+          wsHtml.includes('data-testid="custom-component-card"') &&
+          wsHtml.includes('/studio/fire-truck-beacon') &&
+          wsHtml.includes('custom.fire_truck_beacon'),
+        true,
+        '/workspace main dashboard must display saved Custom 3D Components with /studio/<slug> permalink'
+      );
+
+      // Open the dedicated 'components' tab
+      await dashboardModal.open('components', { fromRouter: true });
+      const compTabHtml = dashboardModal._containerEl.innerHTML;
+      assert.equal(
+        compTabHtml.includes('data-testid="user-custom-components-panel"') &&
+          compTabHtml.includes('3B Stüdyoda Düzenle') &&
+          compTabHtml.includes('Sahneye Ekle'),
+        true,
+        'Dedicated components tab must render custom component cards with Edit in Studio and Add to Stage buttons'
+      );
+
+      // Test spawning custom component directly from Dashboard onto 3D Stage
+      const spawnRes = dashboardModal.spawnCustomComponentToStage('custom.fire_truck_beacon');
+      assert.equal(spawnRes.spawned, true);
+      assert.equal(spawnedTypeId, 'custom.fire_truck_beacon');
+
+      // Test deleting custom component from Dashboard
+      const delRes = await dashboardModal.deleteCustomComponent('custom.fire_truck_beacon');
+      assert.equal(delRes.deleted, true);
+      assert.equal(
+        dashboardModal.customComponents.some((c) => c.typeId === 'custom.fire_truck_beacon'),
+        false,
+        'Deleted custom component must be removed from dashboard customComponents list'
+      );
+
+      dashboardModal.destroy();
+    } finally {
+      globalThis.document = prevDoc;
+      i18n.setLocale(prevLocale);
+      studioPage.destroy();
+    }
+  }
+);
+
 console.log(`\n🎉 ALL ${passed} ARCHITECTURE & INHERITANCE TESTS PASSED!\n`);

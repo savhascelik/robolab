@@ -262,6 +262,7 @@ export function initSpatialWorkbench() {
     },
     onSaveComponent: () => {
       aiExecutor?.capabilityIndex?.rebuildIndex?.();
+      projectsModal?.refreshCustomComponents?.();
       if (palettePopover?.isOpen) {
         palettePopover.render();
       }
@@ -359,6 +360,14 @@ export function initSpatialWorkbench() {
       const ws = projectsModal.activeWorkspace;
       router.navigate(ws?.slug ? `/workspace/${encodeURIComponent(ws.slug)}` : '/workbench');
       creditStoreModal.open(tab);
+    },
+    onOpenStudio: (slug) => {
+      if (slug === 'new') {
+        openCustomStudio({});
+        customStudioPage?.createNewComponent?.();
+      } else {
+        openCustomStudio(slug ? { componentSlug: slug } : {});
+      }
     },
     onLogout: () => {
       handleLogoutEverywhere();

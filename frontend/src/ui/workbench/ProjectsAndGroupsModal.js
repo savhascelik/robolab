@@ -239,6 +239,7 @@ export class ProjectsAndGroupsModal {
     onRouteSync = null,
     onCloseToWorkbench = null,
     onOpenCreditStore = null,
+    onOpenStudio = null,
     onLogout = null,
     onProfileUpdated = null
   } = {}) {
@@ -254,13 +255,15 @@ export class ProjectsAndGroupsModal {
     this.onRouteSync = onRouteSync;
     this.onCloseToWorkbench = onCloseToWorkbench;
     this.onOpenCreditStore = onOpenCreditStore;
+    this.onOpenStudio = onOpenStudio;
     this.onLogout = onLogout;
     this.onProfileUpdated = onProfileUpdated;
 
     this.isOpen = false;
-    this.activeTab = 'workspaces'; // 'workspaces' | 'groups' | 'presets' | 'account'
+    this.activeTab = 'workspaces'; // 'workspaces' | 'components' | 'groups' | 'presets' | 'account'
     this.projects = [...REFERENCE_3D_PROJECTS];
     this.userWorkspaces = [];
+    this.customComponents = this._getLocalCustomComponents();
     this.activeWorkspace = null;
     this.sessionUser = this.apiClient?.user || null;
     this.groups = [];
@@ -372,12 +375,275 @@ export class ProjectsAndGroupsModal {
     return this;
   }
 
+  _toComponentSlug(comp) {
+    const raw = String(
+      comp?.slug || comp?.typeId || comp?.type_id || comp?.name || 'custom-component'
+    )
+      .replace(/^custom[._-]?/i, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return raw || 'custom-component';
+  }
+
+  _getLocalCustomComponents() {
+    const byTypeId = new Map();
+    const registered = DynamicComponentBuilder.getRegisteredSpecs?.() || [];
+    for (const spec of registered) {
+      if (spec?.typeId) {
+        byTypeId.set(spec.typeId, {
+          ...spec,
+          slug: this._toComponentSlug(spec)
+        });
+      }
+    }
+    const offlineList = this.apiClient?._offlineCustomComponents || [];
+    for (const item of offlineList) {
+      const spec = item?.manifest_json || item;
+      if (spec?.typeId) {
+        try {
+          const normalized = DynamicComponentBuilder.normalizeSpec(spec);
+          byTypeId.set(normalized.typeId, {
+            ...normalized,
+            slug: this._toComponentSlug(normalized)
+          });
+        } catch {
+          // Ignore malformed entries
+        }
+      }
+    }
+    return Array.from(byTypeId.values());
+  }
+
+  async refreshCustomComponents() {
+    let remoteAndLocal = [];
+    try {
+      if (typeof this.apiClient?.listCustomComponents === 'function') {
+        remoteAndLocal = await this.apiClient.listCustomComponents();
+      }
+    } catch {
+      remoteAndLocal = [];
+    }
+
+    const byTypeId = new Map();
+    for (const item of [...this._getLocalCustomComponents(), ...(Array.isArray(remoteAndLocal) ? remoteAndLocal : [])]) {
+      const raw = item?.manifest_json || item;
+      if (raw?.typeId) {
+        try {
+          const normalized = DynamicComponentBuilder.normalizeSpec(raw);
+          DynamicComponentBuilder.registerFromSpec(normalized, this.registry);
+          byTypeId.set(normalized.typeId, {
+            ...normalized,
+            slug: this._toComponentSlug(normalized)
+          });
+        } catch {
+          // Ignore malformed entries
+        }
+      }
+    }
+    this.customComponents = Array.from(byTypeId.values());
+    if (this.isOpen) {
+      this.render();
+    }
+    return this.customComponents;
+  }
+
+  async deleteCustomComponent(typeIdOrSlug) {
+    const clean = String(typeIdOrSlug || '').trim();
+    if (!clean) return { deleted: false };
+
+    const target = this.customComponents.find(
+      (c) => c.typeId === clean || c.slug === clean || String(c.id || '') === clean
+    );
+    const targetTypeId = target?.typeId || clean;
+
+    try {
+      await this.apiClient?.deleteCustomComponent?.(targetTypeId);
+    } catch {
+      // Ignore offline errors
+    }
+
+    DynamicComponentBuilder.unregisterSpec?.(targetTypeId, this.registry);
+    this.customComponents = this.customComponents.filter(
+      (c) => c.typeId !== targetTypeId && c.slug !== clean
+    );
+    this.statusMessage =
+      i18n.getLocale() === 'tr'
+        ? `Özel 3B bileşen silindi: ${target?.name || targetTypeId}`
+        : `Custom 3D component deleted: ${target?.name || targetTypeId}`;
+    if (this.isOpen) {
+      this.render();
+    }
+    return { deleted: true, typeId: targetTypeId };
+  }
+
+  spawnCustomComponentToStage(typeIdOrSlug) {
+    const clean = String(typeIdOrSlug || '').trim();
+    if (!clean) return { spawned: false };
+
+    const found =
+      this.customComponents.find((c) => c.typeId === clean || c.slug === clean) ||
+      DynamicComponentBuilder.getSpec?.(clean) ||
+      null;
+
+    if (!found) {
+      return { spawned: false, reason: `Custom component "${clean}" not found.` };
+    }
+
+    const { typeId } = DynamicComponentBuilder.registerFromSpec(found, this.registry);
+    let spawnedInstance = null;
+    if (this.stage && typeof this.stage.spawnIndependentComponent === 'function') {
+      spawnedInstance = this.stage.spawnIndependentComponent(typeId);
+    }
+    this.scheduleAutoSave('spawn_custom_component');
+    this.close();
+    return { spawned: true, typeId, instance: spawnedInstance };
+  }
+
+  _renderCustomComponentsSection({ compact = false } = {}) {
+    const isTr = i18n.getLocale() === 'tr';
+    const items = Array.isArray(this.customComponents) ? this.customComponents : [];
+
+    return `
+      <section
+        class="wb-custom-components-section ${compact ? 'is-compact' : ''}"
+        data-testid="${compact ? 'dashboard-custom-components-section' : 'user-custom-components-panel'}"
+      >
+        <div class="wb-custom-components-header">
+          <div>
+            <span class="wb-board-tag">3D CUSTOM COMPONENT STUDIO · /studio</span>
+            <h4>🧩 ${isTr ? 'Kaydedilen Özel 3B Bileşenlerim' : 'My Saved Custom 3D Components'} (${items.length})</h4>
+            <p class="wb-custom-components-subtitle">
+              ${
+                isTr
+                  ? '3B Özel Bileşen Stüdyosunda (/studio/<slug>) tasarladığınız elektronik modüller ve fiziksel engeller burada listelenir. Doğrudan çalışma sahnesine ekleyebilir veya stüdyoda düzenleyebilirsiniz.'
+                  : 'Electronic modules and physical props designed in the 3D Custom Component Studio (/studio/<slug>). Spawn directly onto the 3D stage or open in Studio to edit.'
+              }
+            </p>
+          </div>
+          <button
+            type="button"
+            class="wb-primary-btn"
+            data-action="dashboard-create-custom-component"
+            data-testid="dashboard-create-custom-component-btn"
+          >
+            + ${isTr ? 'Yeni 3B Bileşen Tasarla (/studio)' : 'Design New 3D Component (/studio)'}
+          </button>
+        </div>
+
+        ${
+          items.length === 0
+            ? `
+              <div class="wb-custom-components-empty" data-testid="custom-components-empty">
+                <p>${
+                  isTr
+                    ? 'Henüz kaydedilmiş özel 3B bileşeniniz yok. Yapay Zeka Donanım Mimarı ile çakar tepe lambası, özel sensör kartı veya parkur engeli tasarlamak için 3B Bileşen Stüdyosunu açın.'
+                    : 'No saved custom 3D components yet. Open the 3D Component Studio to design custom modules or props with the AI Hardware Architect.'
+                }</p>
+              </div>
+            `
+            : `
+              <div class="wb-projects-grid wb-custom-components-grid">
+                ${items
+                  .map((comp) => {
+                    const slug = this._toComponentSlug(comp);
+                    const partCount = Array.isArray(comp.geometry?.parts)
+                      ? comp.geometry.parts.length
+                      : 1;
+                    const pins = Array.isArray(comp.pins) ? comp.pins : [];
+                    const isProp = Boolean(comp.isProp || comp.isEnvironmentProp || comp.archetype === 'prop');
+                    const pinLabels = pins
+                      .slice(0, 6)
+                      .map((p) => p.label || p.name || p.id)
+                      .filter(Boolean);
+
+                    return `
+                      <article
+                        class="wb-project-card wb-custom-component-card"
+                        data-testid="custom-component-card"
+                        data-custom-type-id="${comp.typeId}"
+                        data-custom-slug="${slug}"
+                      >
+                        <div class="wb-project-meta">
+                          <span class="wb-board-tag">${
+                            isProp
+                              ? isTr
+                                ? '🧱 FİZİKSEL ENGEL (0-PİN)'
+                                : '🧱 0-PIN PROP'
+                              : isTr
+                                ? '⚡ ELEKTRONİK MODÜL'
+                                : '⚡ ELECTRONIC MODULE'
+                          }</span>
+                          <span class="wb-workspace-meta-pill">${partCount} ${isTr ? '3B Parça' : '3D Parts'} · ${pins.length} Pin</span>
+                        </div>
+                        <h4>${comp.name || comp.typeId}</h4>
+                        <div class="wb-workspace-url-row" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                          <code class="wb-workspace-slug-badge" data-testid="custom-component-studio-url">/studio/${slug}</code>
+                          <code class="wb-workspace-slug-badge">${comp.typeId}</code>
+                        </div>
+                        <p>${
+                          comp.description ||
+                          (isProp
+                            ? isTr
+                              ? 'Mesafe ve optik sensörleri tetikleyen 3B fiziksel parkur nesnesi.'
+                              : '3D physical obstacle prop for ultrasonic & optical sensors.'
+                            : isTr
+                              ? `Özel 3B elektronik devre bileşeni (${pinLabels.join(', ') || 'GPIO'}).`
+                              : `Custom 3D electronic hardware module (${pinLabels.join(', ') || 'GPIO'}).`)
+                        }</p>
+                        ${
+                          pinLabels.length > 0
+                            ? `<div class="wb-custom-pin-chips">
+                                ${pinLabels
+                                  .map((lbl) => `<span class="wb-custom-pin-chip">${lbl}</span>`)
+                                  .join('')}
+                              </div>`
+                            : ''
+                        }
+                        <div class="wb-project-actions">
+                          <button
+                            type="button"
+                            class="wb-primary-btn"
+                            data-open-studio-slug="${slug}"
+                            data-testid="open-studio-component-btn"
+                          >
+                            🔧 ${isTr ? '3B Stüdyoda Düzenle' : 'Edit in 3D Studio'}
+                          </button>
+                          <button
+                            type="button"
+                            class="wb-secondary-btn"
+                            data-spawn-custom-type="${comp.typeId}"
+                            data-testid="spawn-custom-component-btn"
+                          >
+                            ⚡ ${isTr ? 'Sahneye Ekle' : 'Add to Stage'}
+                          </button>
+                          <button
+                            type="button"
+                            class="wb-secondary-btn wb-danger-outline-btn"
+                            data-delete-custom-id="${comp.typeId}"
+                            data-testid="delete-custom-component-btn"
+                          >
+                            ${isTr ? 'Sil' : 'Delete'}
+                          </button>
+                        </div>
+                      </article>
+                    `;
+                  })
+                  .join('')}
+              </div>
+            `
+        }
+      </section>
+    `;
+  }
+
   async open(tab = 'workspaces', options = {}) {
-    const allowedTabs = ['workspaces', 'presets', 'groups', 'account'];
+    const allowedTabs = ['workspaces', 'components', 'presets', 'groups', 'account'];
     this.activeTab = allowedTabs.includes(tab) ? tab : 'workspaces';
     this.isOpen = true;
     this.statusMessage = '';
     this.sessionUser = this.apiClient?.user || this.sessionUser || null;
+    this.customComponents = this._getLocalCustomComponents();
     if (this.rootEl) {
       this.rootEl.hidden = false;
       this.rootEl.removeAttribute?.('hidden');
@@ -386,6 +652,7 @@ export class ProjectsAndGroupsModal {
       this.onRouteSync?.(this.activeTab);
     }
     this.render();
+    await this.refreshCustomComponents();
     await this.refreshRemoteProjects();
     await this.refreshStudyGroups();
     if (this.sessionUser?.email) {
@@ -1409,6 +1676,14 @@ export class ProjectsAndGroupsModal {
           </button>
           <button
             type="button"
+            class="wb-tab-btn ${this.activeTab === 'components' ? 'is-active' : ''}"
+            data-tab="components"
+            data-testid="tab-custom-components"
+          >
+            🧩 ${i18n.getLocale() === 'tr' ? 'Özel 3B Bileşenlerim' : 'My Custom 3D Components'} (${this.customComponents.length})
+          </button>
+          <button
+            type="button"
             class="wb-tab-btn ${this.activeTab === 'groups' ? 'is-active' : ''}"
             data-tab="groups"
             data-testid="tab-study-groups"
@@ -1522,6 +1797,7 @@ export class ProjectsAndGroupsModal {
                           </div>
                         `
                     }
+                    ${this._renderCustomComponentsSection({ compact: true })}
                   </div>
                 `
                 : `
@@ -1547,7 +1823,10 @@ export class ProjectsAndGroupsModal {
                       </button>
                     </div>
                   </div>
+                  ${this._renderCustomComponentsSection({ compact: true })}
                 `
+              : this.activeTab === 'components'
+              ? this._renderCustomComponentsSection({ compact: false })
               : this.activeTab === 'presets'
               ? `
                 <div class="wb-projects-grid">
@@ -1833,6 +2112,37 @@ export class ProjectsAndGroupsModal {
       btn.addEventListener('click', async () => {
         const slug = btn.dataset.deleteWorkspace;
         await this.deleteUserWorkspace(slug);
+      });
+    });
+
+    this._containerEl
+      .querySelectorAll('[data-action="dashboard-create-custom-component"]')
+      .forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.close({ fromRouter: true });
+          this.onOpenStudio?.('new');
+        });
+      });
+
+    this._containerEl.querySelectorAll('[data-open-studio-slug]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const slug = btn.dataset.openStudioSlug;
+        this.close({ fromRouter: true });
+        this.onOpenStudio?.(slug);
+      });
+    });
+
+    this._containerEl.querySelectorAll('[data-spawn-custom-type]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const typeId = btn.dataset.spawnCustomType;
+        this.spawnCustomComponentToStage(typeId);
+      });
+    });
+
+    this._containerEl.querySelectorAll('[data-delete-custom-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.deleteCustomId;
+        await this.deleteCustomComponent(id);
       });
     });
 

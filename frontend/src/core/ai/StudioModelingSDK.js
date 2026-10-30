@@ -390,10 +390,33 @@ return {
   }
 
   _recordToolCall(toolName, args, resultSummary = null) {
+    const cleanArgs = args !== undefined ? JSON.parse(JSON.stringify(args)) : {};
+    const lowerTool = String(toolName || '').toLowerCase();
+    let phase = 'cad';
+    if (lowerTool.includes('meta') || lowerTool.includes('template') || lowerTool.includes('snapshot') || lowerTool.includes('preset')) {
+      phase = 'meta';
+    } else if (lowerTool.includes('pin') || lowerTool.includes('dipole')) {
+      phase = 'pin';
+    } else if (lowerTool.includes('evaluate') || lowerTool.includes('behavior')) {
+      phase = lowerTool.includes('test') ? 'verify' : 'behavior';
+    } else if (lowerTool.includes('test')) {
+      phase = 'verify';
+    }
+
+    const partId =
+      typeof cleanArgs?.id === 'string' && lowerTool.includes('part')
+        ? cleanArgs.id
+        : typeof cleanArgs?.partId === 'string'
+        ? cleanArgs.partId
+        : null;
+
     const entry = {
       id: `tool_${Date.now()}_${this.toolHistory.length + 1}`,
+      stepIndex: this.toolHistory.length + 1,
       tool: toolName,
-      args: args !== undefined ? JSON.parse(JSON.stringify(args)) : {},
+      phase,
+      partId,
+      args: cleanArgs,
       summary: resultSummary,
       timestamp: new Date().toISOString()
     };

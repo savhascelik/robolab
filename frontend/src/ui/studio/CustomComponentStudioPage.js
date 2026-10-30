@@ -285,10 +285,18 @@ export class CustomComponentStudioPage {
     };
     this.lastTestReport = null;
 
-    // Studio Architect state
+    // Studio Architect state (Agentic multi-step trace & progress like Workbench AiAgentChatPanel)
+    this.isArchitectBusy = false;
+    this.architectRound = 1;
+    this.architectMaxRounds = 6;
+    this.architectActivePhase = 'idle';
+    this.expandedToolStepIds = new Set();
+    this.expandAllToolSteps = false;
     this.architectMessages = [
       {
         role: 'assistant',
+        round: 1,
+        maxRounds: 6,
         text:
           i18n.getLocale() === 'tr'
             ? 'StudioModelingSDK hazır (19 granüler 3B CAD & Pin aracı aktif). Doğal dille veya `studio.*` komutlarıyla parçaları yüzeylere yapıştırabilir (`attachPart`), 2.54mm pin dizisi üretebilir (`addPinRow`) ve davranışı canlı test edebilirsiniz (`testComponentBehavior`).'
@@ -1012,8 +1020,183 @@ return {
   }
 
   /**
+   * Builds a structured verification `MiniTable` summary for an AI Architect turn,
+   * matching the Workbench `AiAgentChatPanel.js` verification table pattern.
+   */
+  _buildVerificationMiniTable(draft, selfTest, tools = [], round = 1, latencyMs = null) {
+    const isTr = i18n.getLocale() === 'tr';
+    const parts = draft?.geometry?.parts || draft?.parts || [];
+    const pins = draft?.pins || [];
+    const isProp = Boolean(draft?.isProp || draft?.isEnvironmentProp || draft?.archetype === 'prop');
+    const outputs = selfTest?.outputVoltages || {};
+    const anim = selfTest?.partAnimations || selfTest?.animationPreview || {};
+
+    const outEntries = Object.entries(outputs);
+    const outSummary =
+      outEntries.length > 0
+        ? outEntries
+            .map(
+              ([pin, v]) =>
+                `${pin}: ${Number(v).toFixed(2)}V (${Number(v) >= 2.5 ? 'HIGH' : 'LOW'})`
+            )
+            .join(' · ')
+        : isProp
+        ? isTr
+          ? 'Pinsiz Engel (Sensör Raycast Aktif)'
+          : '0-Pin Obstacle (Raycast Active)'
+        : '—';
+
+    const slug = this.getComponentSlug(draft);
+    const partNames = parts.map((p) => p.id).join(', ') || '—';
+    const pinSummary = isProp
+      ? isTr
+        ? '0 Pin (Fiziksel Sahne Nesnesi)'
+        : '0 Pins (Physical Stage Prop)'
+      : `${pins.length} Pin (${pins.map((p) => p.label || p.id || p.name).join(', ') || '—'})`;
+    const physSummary = [
+      `${isTr ? 'Işık/LED' : 'Emissive'}: ${anim.emissiveLit ? 'ON' : 'OFF'}`,
+      `${isTr ? 'Rotor' : 'Rotor'}: ${anim.rotorSpinning ? 'SPINNING' : 'IDLE'}`
+    ].join(' · ');
+
+    const rows = [
+      {
+        label: isTr ? 'Bileşen Kimliği' : 'Component Identity',
+        value: `${draft?.name || 'Custom 3D Module'} (${draft?.typeId || 'custom.smart_module'} · /studio/${slug})`
+      },
+      {
+        label: isTr ? '3B CAD Parça Ağacı' : '3D CAD Part Tree',
+        value: `${parts.length} ${isTr ? 'Parça' : 'Parts'} [${partNames}]`
+      },
+      {
+        label: isTr ? 'Pin & Elektriksel Uçlar' : 'Pins & Electrical Terminals',
+        value: pinSummary
+      },
+      {
+        label: isTr ? 'Tetikleme & Çıkış Sinyali' : 'Trigger & Output Signal',
+        value: outSummary
+      },
+      {
+        label: isTr ? '3B Fiziksel Tepki' : '3D Physical Reaction',
+        value: physSummary
+      },
+      {
+        label: isTr ? 'Self-Test Doğrulaması' : 'Self-Test Verification',
+        value: `${selfTest?.ok !== false ? 'PASS (Doğrulandı)' : 'FAIL'} · ${tools.length} SDK Adımı · Tur ${round}/${this.architectMaxRounds || 6}`
+      }
+    ];
+
+    return {
+      title: isTr
+        ? 'TEKNİK DOĞRULAMA TABLOSU (MINITABLE · CAD + SİNYAL + FİZİK)'
+        : 'TECHNICAL VERIFICATION MINITABLE (CAD + SIGNAL + PHYSICS)',
+      rows,
+      componentName: draft?.name || 'Custom 3D Module',
+      typeId: draft?.typeId || 'custom.smart_module',
+      slug,
+      archetype: isProp
+        ? isTr
+          ? 'Pinsiz Sahne Nesnesi (0-Pin)'
+          : '0-Pin Stage Object'
+        : isTr
+        ? `Pinli Elektronik Modül (${pins.length} Pin)`
+        : `Electronic Module (${pins.length} Pins)`,
+      partCount: parts.length,
+      partIds: parts.map((p) => p.id),
+      pinCount: pins.length,
+      pinNames: pins.map((p) => p.id || p.name),
+      outputsSummary: outSummary,
+      emissiveLit: Boolean(anim.emissiveLit),
+      rotorSpinning: Boolean(anim.rotorSpinning),
+      toolCount: tools.length,
+      round,
+      maxRounds: this.architectMaxRounds || 6,
+      latencyMs: typeof latencyMs === 'number' ? Math.max(1, Math.round(latencyMs)) : null,
+      ok: Boolean(selfTest?.ok)
+    };
+  }
+
+  /**
+   * Formats a recorded `StudioModelingSDK` tool call into a structured step descriptor
+   * with human-readable label, phase badge, target `partId`, and compact JSON arguments.
+   */
+  _formatToolStepMeta(tCall, idx, isTr = i18n.getLocale() === 'tr') {
+    const toolName = String(tCall?.tool || 'tool');
+    const args = tCall?.args && typeof tCall.args === 'object' ? tCall.args : {};
+    const lower = toolName.toLowerCase();
+
+    let phaseBadge = '3B CAD';
+    let phaseTone = 'cad';
+    if (lower.includes('meta') || lower.includes('template') || lower.includes('snapshot') || lower.includes('preset')) {
+      phaseBadge = isTr ? 'KİMLİK & ŞEMA' : 'META & SCHEMA';
+      phaseTone = 'meta';
+    } else if (lower.includes('pin') || lower.includes('dipole')) {
+      phaseBadge = isTr ? 'PİN & ELEKTRİK' : 'PINS & DIPOLE';
+      phaseTone = 'pin';
+    } else if (lower.includes('evaluate')) {
+      phaseBadge = isTr ? 'SİNYAL KODU' : 'SIGNAL LOGIC';
+      phaseTone = 'behavior';
+    } else if (lower.includes('test')) {
+      phaseBadge = 'SELF-TEST';
+      phaseTone = 'verify';
+    } else if (lower.includes('attach')) {
+      phaseBadge = isTr ? 'YÜZEY ATTACH' : 'ATTACH';
+      phaseTone = 'cad';
+    }
+
+    let signature = `studio.${toolName}()`;
+    if (toolName === 'setComponentMeta') {
+      const label = args.name || args.typeId || '';
+      signature = label ? `studio.setComponentMeta("${label}")` : 'studio.setComponentMeta(...)';
+    } else if (toolName === 'addPart' || toolName === 'updatePart') {
+      const pid = args.id || args.partId || `part_${idx + 1}`;
+      const prim = args.primitive || args.shape || '';
+      signature = prim
+        ? `studio.${toolName}("${pid}", "${prim}")`
+        : `studio.${toolName}("${pid}")`;
+    } else if (toolName === 'attachPart') {
+      signature = `studio.attachPart("${args.partId || ''}", "${args.to || 'pcb_base'}.${args.side || 'top'}")`;
+    } else if (toolName === 'addPinRow') {
+      const labels = Array.isArray(args.labels) ? args.labels.join(', ') : `${args.count || 4} pin`;
+      signature = `studio.addPinRow([${labels}])`;
+    } else if (toolName === 'addPin') {
+      signature = `studio.addPin("${args.id || args.name || 'IO'}")`;
+    } else if (toolName === 'setInternalDipoles') {
+      const count = Array.isArray(args.dipoles) ? args.dipoles.length : Array.isArray(args) ? args.length : 1;
+      signature = `studio.setInternalDipoles(${count} dipol)`;
+    } else if (toolName === 'setEvaluateScript') {
+      const scriptStr = typeof args.script === 'string' ? args.script : typeof args.code === 'string' ? args.code : '';
+      const lines = scriptStr ? scriptStr.trim().split('\n').length : 1;
+      signature = `studio.setEvaluateScript(${lines} ${isTr ? 'satır JS' : 'lines JS'})`;
+    } else if (toolName === 'testComponentBehavior') {
+      const vMap = args.pinVoltages && typeof args.pinVoltages === 'object' ? args.pinVoltages : {};
+      const vPairs = Object.entries(vMap)
+        .map(([k, v]) => `${k}=${v}V`)
+        .join(', ');
+      signature = vPairs ? `studio.testComponentBehavior({ ${vPairs} })` : 'studio.testComponentBehavior()';
+    }
+
+    const partId =
+      tCall?.partId ||
+      (typeof args.id === 'string' && lower.includes('part') ? args.id : null) ||
+      (typeof args.partId === 'string' ? args.partId : null);
+
+    return {
+      stepNumber: idx + 1,
+      toolName,
+      phase: phaseTone,
+      phaseBadge,
+      phaseTone,
+      signature,
+      partId,
+      summary: tCall?.summary || '',
+      argsJson: JSON.stringify(args, null, 2)
+    };
+  }
+
+  /**
    * Executes a natural language command or `studio.*` script via the Backend LLM (`/api/v1/ai/studio-modeling`)
-   * and `StudioModelingSDK`, runs self-test verification, and logs the granular tool trace.
+   * and `StudioModelingSDK`, runs self-test verification, performs Round 2 self-healing if needed,
+   * and logs the granular step-by-step tool trace.
    * @param {string} promptText
    */
   async executeArchitectPrompt(promptText = '') {
@@ -1021,6 +1204,7 @@ return {
     if (!cleanPrompt) return null;
 
     const isTr = i18n.getLocale() === 'tr';
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this.architectMessages.push({
       role: 'user',
       text: cleanPrompt,
@@ -1028,10 +1212,13 @@ return {
     });
 
     this.isArchitectBusy = true;
+    this.architectRound = 1;
+    this.architectMaxRounds = 6;
+    this.architectActivePhase = 'discover';
     this.statusTone = 'info';
     this.statusMessage = isTr
-      ? 'Backend LLM ile 3B CAD parçaları, PBR materyaller ve sinyal mantığı sentezleniyor...'
-      : 'Synthesizing 3D CAD parts, PBR materials, and signal logic via Backend LLM...';
+      ? 'Tur 1/6 · 3B CAD parçaları, PBR materyaller ve sinyal mantığı sentezleniyor...'
+      : 'Round 1/6 · Synthesizing 3D CAD parts, PBR materials, and signal logic...';
     if (this.container) {
       const statusEl = this.container.querySelector('.studio-status-inline');
       if (statusEl) statusEl.textContent = this.statusMessage;
@@ -1041,10 +1228,73 @@ return {
 
     const prevLogLen = this.sdk.toolLog.length;
     let executionResult = null;
+    let roundUsed = 1;
+
+    const runBackendRound = async (roundNum, extraObservation = '') => {
+      this.architectRound = roundNum;
+      this.architectActivePhase = roundNum > 1 ? 'self_heal' : 'cad';
+      const llmRes = await this.backendClient.requestStudioModeling({
+        prompt: cleanPrompt,
+        currentDraft: this.sdk.getDraft(),
+        snapshot: this.sdk.getComponentSnapshot({ recordTool: false }),
+        history: this.architectMessages.slice(-6).map((m) => ({
+          role: m.role,
+          text: m.text
+        })),
+        tools: STUDIO_MODELING_TOOL_DEFINITIONS,
+        toolResults: this.sdk.toolLog.slice(-8),
+        observationText:
+          extraObservation ||
+          (this.lastTestReport
+            ? `lastSelfTest: ok=${Boolean(this.lastTestReport.ok)} active=${Boolean(
+                this.lastTestReport?.state?.active
+              )} outputs=${JSON.stringify(this.lastTestReport?.outputVoltages || {})}`
+            : ''),
+        round: roundNum,
+        maxRounds: this.architectMaxRounds,
+        locale: i18n.getLocale()
+      });
+
+      if (llmRes && typeof llmRes.studio_code === 'string' && llmRes.studio_code.includes('studio.')) {
+        this.architectActivePhase = 'pins_logic';
+        const codeRes = this.sdk.executeStudioCode(llmRes.studio_code);
+        return {
+          ok: true,
+          mode: 'backend_llm',
+          thought: llmRes.thought || '',
+          summary:
+            llmRes.summary ||
+            (isTr ? '3B bileşen modeli LLM tarafından güncellendi.' : '3D component model updated by LLM.'),
+          modelUsed: llmRes.meta?.model_used || null,
+          studioCode: llmRes.studio_code,
+          executedTools: codeRes.executedTools,
+          toolCalls: llmRes.tool_calls || [],
+          snapshot: codeRes.snapshot
+        };
+      }
+      if (llmRes && Array.isArray(llmRes.tool_calls) && llmRes.tool_calls.length > 0) {
+        this.architectActivePhase = 'pins_logic';
+        const callsRes = this.sdk.executeToolCalls(llmRes.tool_calls);
+        return {
+          ok: true,
+          mode: 'backend_llm_tools',
+          thought: llmRes.thought || '',
+          summary:
+            llmRes.summary ||
+            (isTr ? '3B bileşen modeli LLM araçlarıyla güncellendi.' : '3D component model updated by LLM tools.'),
+          modelUsed: llmRes.meta?.model_used || null,
+          executedTools: callsRes.executedTools,
+          toolCalls: llmRes.tool_calls,
+          snapshot: callsRes.snapshot
+        };
+      }
+      return null;
+    };
 
     try {
       // 1. Direct `studio.` JavaScript Code Mode snippet
       if (/\bstudio\s*\./.test(cleanPrompt)) {
+        this.architectActivePhase = 'cad';
         const codeRes = this.sdk.executeStudioCode(cleanPrompt);
         executionResult = {
           ok: true,
@@ -1052,6 +1302,7 @@ return {
           summary: isTr
             ? `${codeRes.executedTools.length} adet Studio SDK aracı çalıştırıldı.`
             : `Executed ${codeRes.executedTools.length} Studio SDK tool calls.`,
+          studioCode: cleanPrompt,
           executedTools: codeRes.executedTools,
           snapshot: codeRes.snapshot
         };
@@ -1061,52 +1312,9 @@ return {
       ) {
         // 2. Call Backend LLM (`POST /api/v1/ai/studio-modeling`) with full Studio tool catalog
         try {
-          const llmRes = await this.backendClient.requestStudioModeling({
-            prompt: cleanPrompt,
-            currentDraft: this.sdk.getDraft(),
-            snapshot: this.sdk.getComponentSnapshot({ recordTool: false }),
-            history: this.architectMessages.slice(-6).map((m) => ({
-              role: m.role,
-              text: m.text
-            })),
-            tools: STUDIO_MODELING_TOOL_DEFINITIONS,
-            toolResults: this.sdk.toolLog.slice(-6),
-            observationText: this.lastTestResult
-              ? `lastSelfTest: active=${Boolean(this.lastTestResult?.state?.active)} outputs=${JSON.stringify(this.lastTestResult?.outputVoltages || {})}`
-              : '',
-            round: 1,
-            maxRounds: 6,
-            locale: i18n.getLocale()
-          });
-
-          if (llmRes && typeof llmRes.studio_code === 'string' && llmRes.studio_code.includes('studio.')) {
-            const codeRes = this.sdk.executeStudioCode(llmRes.studio_code);
-            executionResult = {
-              ok: true,
-              mode: 'backend_llm',
-              thought: llmRes.thought || '',
-              summary:
-                llmRes.summary ||
-                (isTr ? '3B bileşen modeli LLM tarafından güncellendi.' : '3D component model updated by LLM.'),
-              modelUsed: llmRes.meta?.model_used || null,
-              executedTools: codeRes.executedTools,
-              toolCalls: llmRes.tool_calls || [],
-              snapshot: codeRes.snapshot
-            };
-          } else if (llmRes && Array.isArray(llmRes.tool_calls) && llmRes.tool_calls.length > 0) {
-            const callsRes = this.sdk.executeToolCalls(llmRes.tool_calls);
-            executionResult = {
-              ok: true,
-              mode: 'backend_llm_tools',
-              thought: llmRes.thought || '',
-              summary:
-                llmRes.summary ||
-                (isTr ? '3B bileşen modeli LLM araçlarıyla güncellendi.' : '3D component model updated by LLM tools.'),
-              modelUsed: llmRes.meta?.model_used || null,
-              executedTools: callsRes.executedTools,
-              toolCalls: llmRes.tool_calls,
-              snapshot: callsRes.snapshot
-            };
+          const round1Res = await runBackendRound(1);
+          if (round1Res) {
+            executionResult = round1Res;
           } else {
             executionResult = await this.sdk.applyNaturalLanguageCommand(cleanPrompt);
           }
@@ -1128,6 +1336,7 @@ return {
     }
 
     // Sync default test bench voltages for any newly created pins
+    this.architectActivePhase = 'verify';
     this._syncDefaultPinVoltages();
     const draftTypeId = String(this.sdk.getDraft().typeId || '');
     if (this.testPinVoltages.IN !== undefined) {
@@ -1138,37 +1347,77 @@ return {
     const alreadyTestedInTurn = this.sdk.toolLog
       .slice(prevLogLen)
       .some((entry) => entry.tool === 'testComponentBehavior');
-    const selfTest = this.runLiveSelfTest({ recordTool: !alreadyTestedInTurn });
+    let selfTest = this.runLiveSelfTest({ recordTool: !alreadyTestedInTurn });
+
+    // Multi-Round Self-Healing: If Round 1 selfTest failed and backend LLM is available, run Round 2 repair
+    if (
+      !selfTest.ok &&
+      executionResult?.mode?.startsWith('backend_llm') &&
+      this.backendClient &&
+      typeof this.backendClient.requestStudioModeling === 'function'
+    ) {
+      try {
+        roundUsed = 2;
+        const healRes = await runBackendRound(
+          2,
+          `SELF_TEST_FAILED: ${(selfTest.errors || []).join('; ') || 'Invalid evaluateScript or part attachment'}. Fix the component using studio.* tools and re-run studio.testComponentBehavior.`
+        );
+        if (healRes?.ok) {
+          executionResult = healRes;
+          this._syncDefaultPinVoltages();
+          selfTest = this.runLiveSelfTest({ recordTool: true });
+        }
+      } catch {
+        // Keep Round 1 result if Round 2 fails
+      }
+    }
+
+    this.architectActivePhase = 'idle';
     const newTools = this.sdk.toolLog.slice(prevLogLen);
+    const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const latencyMs = Math.max(1, Math.round(endedAt - startedAt));
+    const currentDraft = this.sdk.getDraft();
+    const miniTable = this._buildVerificationMiniTable(
+      currentDraft,
+      selfTest,
+      newTools,
+      roundUsed,
+      latencyMs
+    );
 
     const summaryText = executionResult?.ok
       ? isTr
         ? `${executionResult.summary || '3B model güncellendi.'} Kendi kendini doğrulama (Self-Test): ${
             selfTest.ok ? 'BAŞARILI' : 'HATA'
-          } — Parça: ${(this.sdk.getDraft().geometry?.parts || []).length}, Pin: ${
-            (this.sdk.getDraft().pins || []).length
+          } — Parça: ${(currentDraft.geometry?.parts || []).length}, Pin: ${
+            (currentDraft.pins || []).length
           }.`
         : `${executionResult.summary || '3D model updated.'} Self-Test: ${
             selfTest.ok ? 'PASSED' : 'ERROR'
-          } — Parts: ${(this.sdk.getDraft().geometry?.parts || []).length}, Pins: ${
-            (this.sdk.getDraft().pins || []).length
+          } — Parts: ${(currentDraft.geometry?.parts || []).length}, Pins: ${
+            (currentDraft.pins || []).length
           }.`
       : `${isTr ? 'Hata' : 'Error'}: ${executionResult?.error || 'Unknown error'}`;
 
     this.architectMessages.push({
       role: 'assistant',
+      round: roundUsed,
+      maxRounds: this.architectMaxRounds,
+      latencyMs,
       thought: executionResult?.thought || '',
       modelUsed: executionResult?.modelUsed || null,
+      studioCode: executionResult?.studioCode || '',
       text: summaryText,
       tools: newTools,
-      selfTest
+      selfTest,
+      miniTable
     });
 
     this.statusMessage = summaryText;
     this.statusTone = executionResult?.ok ? 'success' : 'error';
 
     if (typeof this.onRouteChange === 'function') {
-      this.onRouteChange(this.getComponentSlug(), this.sdk.getDraft());
+      this.onRouteChange(this.getComponentSlug(), currentDraft);
     }
 
     if (this.container) {
@@ -1180,7 +1429,10 @@ return {
       result: executionResult,
       selfTest,
       tools: newTools,
-      draft: this.sdk.getDraft()
+      miniTable,
+      round: roundUsed,
+      latencyMs,
+      draft: currentDraft
     };
   }
 
@@ -1956,18 +2208,77 @@ return {
               >${isTr ? '+ Pinsiz Ultrasonik Parkur Bariyeri Üret' : '+ Create 0-Pin Ultrasonic Barrier Prop'}</button>
             </div>
 
-            <!-- Conversation & Tool Execution Stream -->
+            <!-- Multi-Round Agentic Pipeline Progress Header (matches Workbench Flownie Agent) -->
+            <div class="studio-agent-progress" data-testid="studio-agent-progress" data-busy="${this.isArchitectBusy ? 'true' : 'false'}">
+              <div class="studio-agent-progress__top">
+                <span class="studio-agent-round-pill" data-testid="studio-agent-round-pill">
+                  ${isTr ? `TUR ${this.architectRound || 1}/${this.architectMaxRounds || 6}` : `ROUND ${this.architectRound || 1}/${this.architectMaxRounds || 6}`}
+                </span>
+                <span class="studio-agent-phase-status">
+                  ${
+                    this.isArchitectBusy
+                      ? isTr
+                        ? '⚡ Nebius Ajanı StudioModelingSDK araçlarını adım adım çalıştırıyor...'
+                        : '⚡ Nebius Agent executing StudioModelingSDK tools step-by-step...'
+                      : isTr
+                        ? '✓ Ajan Hazır · Çok Turlu (Multi-Round) CAD + Sinyal + Self-Test Döngüsü'
+                        : '✓ Agent Ready · Multi-Round CAD + Signal + Self-Test Loop'
+                  }
+                </span>
+                <button
+                  type="button"
+                  class="studio-mini-btn"
+                  data-action="toggle-all-studio-steps"
+                  title="${isTr ? 'Tüm araç çağrılarının JSON parametrelerini aç/kapat' : 'Expand/collapse all tool JSON arguments'}"
+                >
+                  ${this.expandAllToolSteps ? (isTr ? 'Detayları Daralt ▲' : 'Collapse Args ▲') : (isTr ? 'Tüm Adım JSON Aç ▼' : 'Expand All JSON ▼')}
+                </button>
+              </div>
+              <div class="studio-agent-pipeline-steps">
+                <span class="studio-pipeline-step is-done">1. ${isTr ? 'Şema & Kimlik' : 'Schema & Meta'}</span>
+                <span class="studio-pipeline-step is-done">2. ${isTr ? '3B CAD & PBR' : '3D CAD & PBR'}</span>
+                <span class="studio-pipeline-step is-done">3. ${isTr ? 'Pin & Sinyal' : 'Pin & Signal'}</span>
+                <span class="studio-pipeline-step ${this.lastTestReport?.ok !== false ? 'is-done' : 'is-warn'}">4. ${isTr ? 'Canlı Self-Test' : 'Live Self-Test'}</span>
+              </div>
+            </div>
+
+            <!-- Conversation & Step-by-Step Tool Execution Stream -->
             <div class="studio-architect-stream" data-region="architect-stream">
               ${this.architectMessages
-                .map(
-                  (msg) => `
-                <article class="studio-arch-msg studio-arch-msg--${this._escapeAttr(msg.role)}">
+                .map((msg, msgIdx) => {
+                  const tools = Array.isArray(msg.tools) ? msg.tools : [];
+                  const miniTable =
+                    msg.miniTable ||
+                    (msg.role === 'assistant' && tools.length > 0
+                      ? this._buildVerificationMiniTable(
+                          draft,
+                          msg.selfTest || this.lastTestReport || { ok: true, partAnimations: {} },
+                          tools,
+                          msg.round || 1,
+                          msg.latencyMs || 0
+                        )
+                      : null);
+
+                  return `
+                <article class="studio-arch-msg studio-arch-msg--${this._escapeAttr(msg.role)}" data-testid="studio-arch-msg-${this._escapeAttr(msg.role)}">
                   <header class="studio-arch-msg__head">
-                    <strong>${msg.role === 'user' ? (isTr ? 'TASARIM İSTEĞİ' : 'DESIGN PROMPT') : (isTr ? 'DONANIM MİMARI (SDK)' : 'STUDIO MODELING SDK')}</strong>
-                    <div style="display:inline-flex;align-items:center;gap:6px;">
+                    <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                      <strong>${msg.role === 'user' ? (isTr ? 'SİZ (TASARIM İSTEĞİ)' : 'YOU (DESIGN PROMPT)') : (isTr ? 'DONANIM MİMARI AJANI' : 'HARDWARE ARCHITECT AGENT')}</strong>
+                      ${
+                        msg.role === 'assistant'
+                          ? `<span class="studio-turn-round-badge">${isTr ? `Tur ${msg.round || 1}/${msg.maxRounds || 6}` : `Round ${msg.round || 1}/${msg.maxRounds || 6}`}</span>`
+                          : ''
+                      }
+                    </div>
+                    <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
                       ${
                         msg.modelUsed
                           ? `<code class="studio-section-meta">${this._escapeHtml(msg.modelUsed)}</code>`
+                          : ''
+                      }
+                      ${
+                        msg.latencyMs
+                          ? `<code class="studio-section-meta">${Number(msg.latencyMs)}ms</code>`
                           : ''
                       }
                       ${
@@ -1987,39 +2298,87 @@ return {
                   </header>
                   ${
                     msg.thought
-                      ? `<p class="studio-arch-msg__thought" style="margin:0 0 6px;font-size:11px;color:var(--text-muted);border-left:2px solid var(--border-hairline);padding-left:8px;">${this._escapeHtml(
-                          msg.thought
-                        )}</p>`
+                      ? `<div class="studio-arch-msg__thought" data-testid="studio-agent-thought">
+                          <span class="studio-thought-label">${isTr ? '🧠 MİMARİ DÜŞÜNCE & ARAÇ PLANI:' : '🧠 ARCHITECTURAL REASONING & PLAN:'}</span>
+                          <p>${this._escapeHtml(msg.thought)}</p>
+                        </div>`
                       : ''
                   }
                   <p class="studio-arch-msg__text">${this._escapeHtml(msg.text)}</p>
                   ${
-                    Array.isArray(msg.tools) && msg.tools.length > 0
+                    tools.length > 0
                       ? `
-                    <div class="studio-arch-tools">
-                      ${msg.tools
-                        .map(
-                          (tCall) => `
-                        <div class="studio-arch-tool-call" title="${this._escapeAttr(tCall.summary || '')}">
-                          <code>studio.${this._escapeHtml(tCall.tool)}()</code>
+                    <div class="studio-arch-tools" data-testid="studio-tool-steps-list">
+                      <div class="studio-arch-tools__header">
+                        <span>${isTr ? `ÇALIŞTIRILAN ARAÇ ADIMLARI (${tools.length} ADIM)` : `EXECUTED SDK TOOL STEPS (${tools.length} STEPS)`}</span>
+                        <span>StudioModelingSDK</span>
+                      </div>
+                      ${tools
+                        .map((tCall, stepIdx) => {
+                          const step = this._formatToolStepMeta(tCall, stepIdx, isTr);
+                          const stepKey = `m${msgIdx}_s${stepIdx}`;
+                          const isExpanded =
+                            this.expandAllToolSteps || this.expandedToolStepIds.has(stepKey);
+                          return `
+                        <div class="studio-tool-step-card" data-testid="studio-tool-step-card" data-phase="${this._escapeAttr(step.phase)}">
+                          <div class="studio-tool-step-card__main">
+                            <span class="studio-tool-step-num">#${step.stepNumber}</span>
+                            <span class="studio-tool-step-phase studio-tool-step-phase--${this._escapeAttr(step.phase)}">${this._escapeHtml(step.phaseBadge)}</span>
+                            <code class="studio-tool-step-sig">${this._escapeHtml(step.signature)}</code>
+                            <div class="studio-tool-step-actions">
+                              ${
+                                step.partId
+                                  ? `<button type="button" class="studio-mini-btn" data-select-part="${this._escapeAttr(step.partId)}" title="${isTr ? 'Bu parçayı 3B sahnede seç ve vurgula' : 'Select and highlight this part in 3D viewport'}">${isTr ? '3B Seç' : '3D Select'}</button>`
+                                  : ''
+                              }
+                              <button
+                                type="button"
+                                class="studio-mini-btn"
+                                data-action="toggle-studio-tool-step"
+                                data-step-key="${stepKey}"
+                              >${isExpanded ? (isTr ? 'JSON Gizle ▲' : 'Hide JSON ▲') : (isTr ? 'Parametreler ▼' : 'Params ▼')}</button>
+                            </div>
+                          </div>
                           ${
-                            tCall.summary
-                              ? `<span style="margin-left:6px;font-size:10px;color:var(--text-muted);">${this._escapeHtml(
-                                  tCall.summary
-                                )}</span>`
+                            step.summary
+                              ? `<div class="studio-tool-step-summary">${this._escapeHtml(step.summary)}</div>`
                               : ''
                           }
+                          <pre class="studio-tool-step-details ${isExpanded ? '' : 'is-collapsed'}" data-step-details="${stepKey}">${this._escapeHtml(step.argsJson)}</pre>
                         </div>
-                      `
-                        )
+                      `;
+                        })
                         .join('')}
                     </div>
                   `
                       : ''
                   }
+                  ${
+                    miniTable && Array.isArray(miniTable.rows)
+                      ? `
+                    <div class="studio-verify-minitable" data-testid="studio-verify-minitable">
+                      <div class="studio-verify-minitable__title">${this._escapeHtml(miniTable.title)}</div>
+                      <table class="studio-verify-minitable__grid">
+                        <tbody>
+                          ${miniTable.rows
+                            .map(
+                              (row) => `
+                            <tr>
+                              <th>${this._escapeHtml(row.label)}</th>
+                              <td>${this._escapeHtml(row.value)}</td>
+                            </tr>
+                          `
+                            )
+                            .join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  `
+                      : ''
+                  }
                 </article>
-              `
-                )
+              `;
+                })
                 .join('')}
             </div>
 
@@ -2353,6 +2712,31 @@ return {
       // Run Self-Test button
       if (target.closest('[data-action="studio-run-selftest"]')) {
         this.runLiveSelfTest();
+        this.render();
+        return;
+      }
+
+      // Toggle single tool step JSON details
+      const toggleStepBtn = target.closest('[data-action="toggle-studio-tool-step"]');
+      if (toggleStepBtn) {
+        const stepKey = toggleStepBtn.getAttribute('data-step-key');
+        if (stepKey) {
+          if (this.expandedToolStepIds.has(stepKey)) {
+            this.expandedToolStepIds.delete(stepKey);
+          } else {
+            this.expandedToolStepIds.add(stepKey);
+          }
+          this.render();
+        }
+        return;
+      }
+
+      // Toggle all tool step JSON details
+      if (target.closest('[data-action="toggle-all-studio-steps"]')) {
+        this.expandAllToolSteps = !this.expandAllToolSteps;
+        if (!this.expandAllToolSteps) {
+          this.expandedToolStepIds.clear();
+        }
         this.render();
         return;
       }
