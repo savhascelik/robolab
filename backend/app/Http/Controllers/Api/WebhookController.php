@@ -91,9 +91,14 @@ class WebhookController extends Controller
 
             $packageId = $metadata['package_id'] ?? null;
             $planId = $data['plan']['id'] ?? $data['plan_id'] ?? null;
+            $productId = $data['product']['id'] ?? $data['product_id'] ?? null;
             $package = $packageId
                 ? AiCreditPackage::find($packageId)
-                : ($planId ? AiCreditPackage::where('whop_plan_id', $planId)->first() : AiCreditPackage::where('is_active', true)->orderBy('sort_order')->first());
+                : ($planId
+                    ? AiCreditPackage::where('whop_plan_id', $planId)->orWhere('whop_product_id', $planId)->first()
+                    : ($productId
+                        ? AiCreditPackage::where('whop_product_id', $productId)->orWhere('whop_plan_id', $productId)->first()
+                        : AiCreditPackage::where('is_active', true)->orderBy('sort_order')->first()));
 
             if ($user && $package) {
                 $order = AiCreditOrder::create([

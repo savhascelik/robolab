@@ -37,7 +37,9 @@ class CreditController extends Controller
                     'is_popular' => $pkg->is_popular,
                     'description' => $pkg->description,
                     'features' => $pkg->features ?? [],
-                    'whop_plan_id' => $pkg->whop_plan_id ?: "plan_{$pkg->slug}",
+                    'whop_product_id' => $pkg->whop_product_id,
+                    'whop_plan_id' => $pkg->whop_plan_id ?: ($pkg->whop_product_id ?: "plan_{$pkg->slug}"),
+                    'whop_checkout_url' => $pkg->whop_checkout_url,
                 ];
             });
 

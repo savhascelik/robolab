@@ -135,25 +135,33 @@ class User extends Authenticatable implements FilamentUser
 
     /**
      * Ensure user has a credit balance record and receives their initial role credit grant once.
+     * Judges receive 400 initial credits; normal newly registered users ('free') receive 100 initial credits.
      */
     public function ensureInitialCreditGrant(): AiCreditBalance
     {
         $balance = AiCreditBalance::getOrCreateForUser($this->id);
+        $roleName = $this->getRoleNames()->first() ?? 'free';
+
+        $defaultRoleGrant = match ($roleName) {
+            'judge' => 400.0,
+            'admin' => 10000.0,
+            'pro' => 2500.0,
+            default => 100.0,
+        };
 
         if ((float) $balance->total_earned_promotional <= 0) {
             /** @var LimitService $limitService */
             $limitService = app(LimitService::class);
-            $initialGrant = $limitService->getUserLimit(
+            $initialGrant = (float) $limitService->getUserLimit(
                 $this,
                 RoleLimit::RESOURCE_AI_USAGE,
                 'initial_credit_balance'
             );
 
-            if ($initialGrant <= 0) {
-                $initialGrant = 250;
+            // Enforce the 400 judge / 100 free starter rule even if legacy role_limits row had 5000 or 250
+            if ($initialGrant <= 0 || ($roleName === 'judge' && $initialGrant == 5000.0) || ($roleName === 'free' && $initialGrant == 250.0)) {
+                $initialGrant = $defaultRoleGrant;
             }
-
-            $roleName = $this->getRoleNames()->first() ?? 'free';
 
             $balance->addPromotionalCredits(
                 (float) $initialGrant,

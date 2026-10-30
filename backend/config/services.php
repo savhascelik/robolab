@@ -46,4 +46,9 @@ return [
         'app_id' => env('WHOP_APP_ID', ''),
     ],
 
+    'judge' => [
+        'access_code' => env('JUDGE_ACCESS_CODE', ''),
+        'magic_token' => env('JUDGE_MAGIC_TOKEN', ''),
+    ],
+
 ];

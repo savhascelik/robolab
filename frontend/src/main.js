@@ -675,10 +675,49 @@ export function initSpatialWorkbench() {
     projectsModal.open(router.currentRoute.tab || 'workspaces', { fromRouter: true });
   }
 
-  // Verify backend session on boot and hydrate the active /workspace/<slug> onto the 3D stage
-  backendApiClient
-    .verifySession()
-    .then(async (verification) => {
+  // Verify backend session on boot (including one-click Judge URL auto-login) and hydrate the active /workspace/<slug>
+  const bootstrapAuthAndStage = async () => {
+    try {
+      if (typeof window !== 'undefined' && window.location?.search) {
+        const params = new URLSearchParams(window.location.search);
+        const judgeKey =
+          params.get('judge') ||
+          params.get('judge_key') ||
+          params.get('judge_token') ||
+          params.get('auto_login');
+        if (judgeKey && typeof backendApiClient.loginWithJudgeKey === 'function') {
+          try {
+            const judgeRes = await backendApiClient.loginWithJudgeKey({
+              key: judgeKey,
+              email: params.get('email') || params.get('judge_email') || undefined,
+              name: params.get('name') || params.get('judge_name') || undefined
+            });
+            if (judgeRes?.user) {
+              // Clean sensitive auto-login token from the URL bar
+              params.delete('judge');
+              params.delete('judge_key');
+              params.delete('judge_token');
+              params.delete('auto_login');
+              params.delete('email');
+              params.delete('judge_email');
+              params.delete('name');
+              params.delete('judge_name');
+              const cleanQuery = params.toString();
+              const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash || ''}`;
+              window.history?.replaceState?.({}, '', cleanUrl);
+              await syncSessionAcrossUi(judgeRes.user, {
+                targetWorkspaceSlug: router.currentRoute.workspaceSlug,
+                initialProject: initialPresetProject
+              });
+              return;
+            }
+          } catch (_judgeErr) {
+            // Fall through to standard session verification if judge key is invalid
+          }
+        }
+      }
+
+      const verification = await backendApiClient.verifySession();
       if (verification?.authenticated && verification?.user) {
         await syncSessionAcrossUi(verification.user, {
           targetWorkspaceSlug: router.currentRoute.workspaceSlug,
@@ -690,10 +729,11 @@ export function initSpatialWorkbench() {
           initialProject: initialPresetProject
         });
       }
-    })
-    .finally(() => {
+    } finally {
       isBootstrappingStage = false;
-    });
+    }
+  };
+  bootstrapAuthAndStage();
 
   // Synchronize browser Back/Forward (popstate) and programmatic route changes
   router.onChange((route, meta) => {

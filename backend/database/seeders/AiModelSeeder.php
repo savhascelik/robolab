@@ -221,9 +221,8 @@ class AiModelSeeder extends Seeder
             ],
         ];
 
-        $keptIds = [];
         foreach ($models as $modelData) {
-            $record = AiModel::updateOrCreate(
+            AiModel::firstOrCreate(
                 [
                     'provider_slug' => $modelData['provider_slug'],
                     'task_role' => $modelData['task_role'],
@@ -231,10 +230,6 @@ class AiModelSeeder extends Seeder
                 ],
                 $modelData
             );
-            $keptIds[] = $record->id;
         }
-
-        // Remove any stale/legacy seeded rows not in the canonical model list
-        AiModel::whereNotIn('id', $keptIds)->delete();
     }
 }

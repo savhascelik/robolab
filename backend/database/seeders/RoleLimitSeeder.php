@@ -26,7 +26,7 @@ class RoleLimitSeeder extends Seeder
                 [RoleLimit::RESOURCE_COMPONENTS, 'daily_datasheet_syntheses', 2, '2 datasheet lookups per day'],
             ],
             'free' => [
-                [RoleLimit::RESOURCE_AI_USAGE, 'initial_credit_balance', 250, 'Initial signup AI credit grant for Free Maker tier'],
+                [RoleLimit::RESOURCE_AI_USAGE, 'initial_credit_balance', 100, 'Initial signup AI credit grant for Free Maker tier (100 credits)'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'daily_token_limit', 250000, 'Daily token limit for Free tier'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'monthly_token_limit', 2500000, 'Monthly token limit for Free tier'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'max_tokens_per_request', 16384, 'Max tokens per AI request'],
@@ -54,7 +54,7 @@ class RoleLimitSeeder extends Seeder
                 [RoleLimit::RESOURCE_COMPONENTS, 'daily_datasheet_syntheses', 200, '200 datasheet syntheses per day'],
             ],
             'judge' => [
-                [RoleLimit::RESOURCE_AI_USAGE, 'initial_credit_balance', 5000, 'Hackathon Judge AI credit grant'],
+                [RoleLimit::RESOURCE_AI_USAGE, 'initial_credit_balance', 400, 'Hackathon Judge AI credit grant (400 credits)'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'daily_token_limit', -1, 'Unlimited daily tokens for Hackathon Judges'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'monthly_token_limit', -1, 'Unlimited monthly tokens'],
                 [RoleLimit::RESOURCE_AI_USAGE, 'max_tokens_per_request', 65536, 'Max tokens per AI request'],

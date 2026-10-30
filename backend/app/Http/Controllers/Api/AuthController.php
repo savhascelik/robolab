@@ -90,6 +90,85 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * One-Click Judge Auto-Login endpoint (`POST /api/v1/auth/judge-login`).
+     * Authenticates a hackathon judge via URL access key and ensures a 400-credit grant.
+     */
+    public function judgeLogin(Request $request): JsonResponse
+    {
+        $providedKey = trim((string) (
+            $request->input('key')
+            ?? $request->input('judge_key')
+            ?? $request->input('code')
+            ?? $request->input('token')
+            ?? ''
+        ));
+
+        $rawCandidates = [
+            (string) config('services.judge.access_code', ''),
+            (string) config('services.judge.magic_token', ''),
+            (string) (getenv('JUDGE_ACCESS_CODE') ?: ''),
+            (string) (getenv('JUDGE_MAGIC_TOKEN') ?: ''),
+        ];
+
+        $validKeys = array_values(array_filter(array_unique(array_map(
+            fn (string $v) => strtolower(trim($v)),
+            $rawCandidates
+        )), fn (string $v) => $v !== ''));
+
+        if ($providedKey === '' || empty($validKeys) || ! in_array(strtolower($providedKey), $validKeys, true)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'invalid_judge_key',
+                'message' => 'Invalid Judge access token.',
+            ], 403);
+        }
+
+        $requestedEmail = strtolower(trim((string) ($request->input('email') ?? '')));
+        $targetEmail = ($requestedEmail !== '' && filter_var($requestedEmail, FILTER_VALIDATE_EMAIL))
+            ? $requestedEmail
+            : 'judge@nebius-hackathon.local';
+
+        $judgeName = trim((string) ($request->input('name') ?? '')) ?: 'Hackathon Judge';
+
+        $user = User::firstOrCreate(
+            ['email' => $targetEmail],
+            [
+                'name' => $judgeName,
+                'password' => Hash::make('judge-nebius-2026'),
+                'email_verified_at' => now(),
+            ]
+        );
+
+        if (! $user->hasRole('judge')) {
+            $user->syncRoles(['judge']);
+        }
+
+        $balance = $user->ensureInitialCreditGrant();
+        if ((float) $balance->available_credits < 400.0) {
+            $balance->update([
+                'promotional_credits' => max(400.0, (float) $balance->promotional_credits),
+                'last_grant_at' => now(),
+            ]);
+        }
+
+        $defaultGroup = StudyGroup::where('slug', 'acik-donanim-atolyesi')->first();
+        if ($defaultGroup) {
+            StudyGroupMember::firstOrCreate(
+                ['study_group_id' => $defaultGroup->id, 'user_id' => $user->id],
+                ['member_role' => 'owner', 'joined_at' => now()]
+            );
+        }
+
+        $token = $user->createToken('judge-magic-token')->plainTextToken;
+
+        return response()->json([
+            'ok' => true,
+            'token' => $token,
+            'user' => $this->serializeUser($user->fresh()),
+        ]);
+    }
+
     public function me(Request $request): JsonResponse
     {
         /** @var User $user */

@@ -58,15 +58,20 @@ class AiCreditPackageResource extends Resource
                 ->numeric()
                 ->default(9.00)
                 ->required(),
-            TextInput::make('whop_plan_id')
-                ->label('Whop Plan ID')
-                ->placeholder('plan_xxxxxxxxxxxx')
-                ->helperText('Whop Dashboard > Products > Plans sekmesindeki "plan_" ile başlayan Plan ID ("prod_" değil).')
-                ->regex('/^plan_[a-zA-Z0-9_]+$/')
-                ->validationMessages([
-                    'regex' => 'Whop Plan ID "plan_" ile başlamalıdır (örn. plan_maker2000).',
-                ])
+            TextInput::make('whop_product_id')
+                ->label('Whop Product ID (prod_...)')
+                ->placeholder('prod_xxxxxxxxxxxx')
+                ->helperText('Whop Dashboard > Products altındaki "prod_" ile başlayan Ürün ID.')
                 ->maxLength(120),
+            TextInput::make('whop_plan_id')
+                ->label('Whop Plan ID (plan_...)')
+                ->placeholder('plan_xxxxxxxxxxxx')
+                ->helperText('Whop Elements gömülü ödeme penceresi için "plan_" (veya "prod_") ID.')
+                ->maxLength(120),
+            TextInput::make('whop_checkout_url')
+                ->label('Whop Checkout URL (Opsiyonel)')
+                ->placeholder('https://whop.com/checkout/plan_xxxxxxxxxxxx/')
+                ->maxLength(255),
             Toggle::make('is_popular')
                 ->label('En Popüler Paket')
                 ->default(false),
@@ -97,8 +102,14 @@ class AiCreditPackageResource extends Resource
                     ->label('Fiyat')
                     ->formatStateUsing(fn ($state): string => '$' . number_format((float) $state, 2))
                     ->badge(),
+                TextColumn::make('whop_product_id')
+                    ->label('Whop Product ID')
+                    ->placeholder('—')
+                    ->copyable(),
                 TextColumn::make('whop_plan_id')
-                    ->label('Whop Plan ID'),
+                    ->label('Whop Plan ID')
+                    ->placeholder('—')
+                    ->copyable(),
                 IconColumn::make('is_popular')
                     ->label('Popüler')
                     ->boolean(),

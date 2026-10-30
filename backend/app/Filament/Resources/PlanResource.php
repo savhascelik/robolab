@@ -51,13 +51,9 @@ class PlanResource extends Resource
                 ->options(fn () => Role::query()->orderBy('id')->pluck('name', 'id')->toArray())
                 ->required(),
             TextInput::make('whop_plan_id')
-                ->label('Whop Plan ID')
-                ->placeholder('plan_xxxxxxxxxxxx')
-                ->helperText('Whop Dashboard > Products > Plans altındaki "plan_" ile başlayan Plan ID.')
-                ->regex('/^plan_[a-zA-Z0-9_]+$/')
-                ->validationMessages([
-                    'regex' => 'Whop Plan ID "plan_" ile başlamalıdır (örn. plan_abc123).',
-                ])
+                ->label('Whop Plan / Product ID')
+                ->placeholder('plan_xxxxxxxxxxxx veya prod_xxxxxxxxxxxx')
+                ->helperText('Whop Dashboard > Products altındaki "plan_" veya "prod_" ID.')
                 ->maxLength(160),
             TextInput::make('price')
                 ->label('Fiyat')

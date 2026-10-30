@@ -595,6 +595,73 @@ export class BackendApiClient {
     return data;
   }
 
+  /**
+   * One-Click Judge Auto-Login via URL access key (`POST /api/v1/auth/judge-login`).
+   * Grants Judge role and 400 initial AI credits.
+   */
+  async loginWithJudgeKey(payload = {}) {
+    const key =
+      typeof payload === 'string'
+        ? payload.trim()
+        : String(payload.key || payload.judge_key || payload.code || payload.token || '').trim();
+    if (!key) {
+      throw new Error('Missing judge access key.');
+    }
+
+    if (!this.fetchImpl) {
+      const creditBalance = {
+        promotional_credits: 400,
+        purchased_credits: 0,
+        available_credits: 400,
+        total_credits: 400
+      };
+      const judgeUser = {
+        id: 2,
+        name: payload.name || 'Hackathon Judge #1',
+        email: payload.email || 'judge@nebius-hackathon.local',
+        role: 'judge',
+        roles: ['judge'],
+        permissions: [
+          'ai.generate_circuit',
+          'ai.code_mode',
+          'ai.search_tools',
+          'ai.datasheet_synthesis',
+          'workspace.cloud_sync',
+          'credits.purchase'
+        ],
+        limits: {
+          initial_credit_balance: 400,
+          max_workspaces: -1,
+          max_agent_rounds: 20
+        },
+        credits: creditBalance,
+        credit_balance: creditBalance
+      };
+      const testToken = `cl3d_judge_${Date.now().toString(36)}`;
+      this.setSession(testToken, judgeUser, creditBalance);
+      return {
+        ok: true,
+        verified: true,
+        token: testToken,
+        user: judgeUser,
+        credit_balance: creditBalance
+      };
+    }
+
+    const data = await this._request('/auth/judge-login', {
+      method: 'POST',
+      body: {
+        key,
+        email: payload.email || undefined,
+        name: payload.name || undefined
+      }
+    });
+    if (data.token) {
+      this.setSession(data.token, data.user, data.credit_balance || data.user?.credits);
+    }
+    return data;
+  }
+
   async verifySession() {
     if (!this.token) {
       this.clearSession();

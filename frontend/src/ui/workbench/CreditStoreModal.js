@@ -39,6 +39,7 @@ export class CreditStoreModal {
     this.statusBanner = null;
     this.containerEl = null;
     this._activeEmbeddedElement = null;
+    this._orderPollTimer = null;
 
     this._onRootClick = this._onRootClick.bind(this);
     this._unsubLocale = i18n.onChange(() => {
@@ -94,9 +95,50 @@ export class CreditStoreModal {
   }
 
   close() {
+    this._stopBackgroundOrderPolling();
     this._destroyEmbeddedElement();
     this.isOpen = false;
     this.render();
+  }
+
+  _startBackgroundOrderPolling(orderNumber) {
+    this._stopBackgroundOrderPolling();
+    if (!orderNumber || typeof setInterval !== 'function') return;
+    this._orderPollTimer = setInterval(async () => {
+      if (!this.isOpen || !this.pendingOrder || this.isVerifyingOrder) {
+        return;
+      }
+      try {
+        if (typeof this.apiClient?.checkCreditOrderStatus === 'function') {
+          const res = await this.apiClient.checkCreditOrderStatus(orderNumber);
+          if (res?.completed) {
+            this._stopBackgroundOrderPolling();
+            this._destroyEmbeddedElement();
+            this.pendingOrder = null;
+            this.checkoutSession = null;
+            await this.refreshData();
+            const isEn = this._isEn();
+            const available = Number(this.apiClient.getCredits()?.available_credits ?? 0).toFixed(1);
+            this.statusBanner = {
+              type: 'success',
+              text: isEn
+                ? `Payment confirmed for ${orderNumber}! Your updated balance is ⚡ ${available} credits.`
+                : `${orderNumber} ödemesi doğrulandı! Güncel bakiyeniz: ⚡ ${available} kredi.`
+            };
+            this.render();
+          }
+        }
+      } catch {
+        // Ignore background poll network errors
+      }
+    }, 3500);
+  }
+
+  _stopBackgroundOrderPolling() {
+    if (this._orderPollTimer) {
+      clearInterval(this._orderPollTimer);
+      this._orderPollTimer = null;
+    }
   }
 
   async refreshData() {
@@ -161,6 +203,7 @@ export class CreditStoreModal {
 
     this.render();
     if (this.pendingOrder && this.checkoutSession) {
+      this._startBackgroundOrderPolling(this.pendingOrder.order_number);
       await this._mountEmbeddedCheckoutElement();
     }
     return this.pendingOrder;
@@ -190,6 +233,7 @@ export class CreditStoreModal {
         lastRes = await this.apiClient.checkCreditOrderStatus(targetOrderNumber);
       }
       if (lastRes?.completed) {
+        this._stopBackgroundOrderPolling();
         this._destroyEmbeddedElement();
         this.pendingOrder = null;
         this.checkoutSession = null;
@@ -302,7 +346,36 @@ export class CreditStoreModal {
       });
 
       const checkoutEl = checkoutHandle.create('checkout', {
-        buyerEmail: sessionCfg.buyer_email || this.apiClient?.user?.email || ''
+        buyerEmail: sessionCfg.buyer_email || this.apiClient?.user?.email || '',
+        onError: () => {
+          const isEn = this._isEn();
+          if (mountNode) {
+            mountNode.innerHTML = `
+              <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; min-height:240px; padding:24px; text-align:center; color:#475569;">
+                <div style="font-size:14px; font-weight:700; color:#0f172a;">
+                  ${isEn ? 'Whop Checkout Ready' : 'Whop Ödeme Oturumu Hazır'} (${sessionCfg.plan_id})
+                </div>
+                <div style="font-size:12.5px; max-width:480px; line-height:1.5;">
+                  ${
+                    isEn
+                      ? 'Complete your purchase via the Whop checkout window below or verify once payment finishes.'
+                      : 'Ödemenizi aşağıdaki Whop ödeme penceresinden tamamlayabilir veya ödeme sonrası doğrulayabilirsiniz.'
+                  }
+                </div>
+                <button type="button" data-open-external-checkout="1" style="
+                  padding: 10px 18px;
+                  border-radius: 10px;
+                  background: #10b981;
+                  border: 1px solid #059669;
+                  color: #ffffff;
+                  font-size: 13px;
+                  font-weight: 700;
+                  cursor: pointer;
+                ">${isEn ? 'Continue to Whop Checkout ↗' : 'Whop Ödeme Sayfasına Devam Et ↗'}</button>
+              </div>
+            `;
+          }
+        }
       });
 
       checkoutEl.mount(mountNode);
@@ -340,6 +413,7 @@ export class CreditStoreModal {
 
     const clearPendingBtn = target.closest('[data-clear-pending-order]');
     if (clearPendingBtn) {
+      this._stopBackgroundOrderPolling();
       this._destroyEmbeddedElement();
       this.pendingOrder = null;
       this.checkoutSession = null;
@@ -500,6 +574,48 @@ export class CreditStoreModal {
         </div>
       </div>
     `;
+  }
+
+  _localizePackageCopy(pkg, isEn = true) {
+    if (!isEn) return { description: pkg.description || '', features: pkg.features || [] };
+    const slug = String(pkg.slug || '').toLowerCase();
+    if (slug.includes('starter')) {
+      return {
+        description:
+          'Starter pack for fast circuit synthesis, pin validation, and embedded C++ firmware generation.',
+        features: [
+          `${pkg.credits || 500} AI Circuit & Agent Credits`,
+          'Flownie Search Mode + CircuitSDK Code Mode',
+          'Tavily Live Datasheet Synthesis',
+          'Never Expires (Purchased Bucket)'
+        ]
+      };
+    }
+    if (slug.includes('maker')) {
+      return {
+        description:
+          'Most popular pack: 2,000 Credits + 300 Bonus Credits for multi-turn robotics and Jetson Nano projects.',
+        features: [
+          '2,000 Purchased + 300 Bonus AI Credits (2,300 Total)',
+          'Multi-Turn Autonomous Circuit Design Agent',
+          'NVIDIA Nemotron-3 Super 120B & Qwen3 Support',
+          'Priority Electrical Topology Verification'
+        ]
+      };
+    }
+    if (slug.includes('robotics') || slug.includes('studio')) {
+      return {
+        description:
+          'High-capacity pack for teams, labs, and developers running intensive autonomous hardware simulations.',
+        features: [
+          '6,000 Purchased + 1,500 Bonus AI Credits (7,500 Total)',
+          'Full Capacity Across All AI Models',
+          'Unlimited Custom 3D Sensor & Datasheet Synthesis',
+          'Full Collaboration in Open Study Groups'
+        ]
+      };
+    }
+    return { description: pkg.description || '', features: pkg.features || [] };
   }
 
   _renderPackagesTab(credits, isEn = true) {
@@ -682,6 +798,7 @@ export class CreditStoreModal {
         ${pkgs
           .map((pkg) => {
             const total = Number(pkg.total_credits || Number(pkg.credits || 0) + Number(pkg.bonus_credits || 0));
+            const localizedCopy = this._localizePackageCopy(pkg, isEn);
             return `
             <div class="credit-pkg-card" id="credit-pkg-${pkg.slug}" style="
               padding: 20px;
@@ -712,7 +829,7 @@ export class CreditStoreModal {
               <div>
                 <h3 style="margin:0; font-size:16px; font-weight:700; color:#0f172a;">${pkg.name}</h3>
                 <p style="margin:6px 0 12px; font-size:12px; color:#64748b; line-height:1.45;">
-                  ${pkg.description || ''}
+                  ${localizedCopy.description}
                 </p>
                 <div style="display:flex; align-items:baseline; gap:6px; margin-bottom:12px;">
                   <span style="font-size:28px; font-weight:800; color:#0f172a;">$${Number(pkg.price_usd).toFixed(2)}</span>
@@ -730,7 +847,7 @@ export class CreditStoreModal {
                   }
                 </div>
                 <ul style="list-style:none; padding:0; margin:0 0 16px; font-size:12px; color:#475569; display:flex; flex-direction:column; gap:6px;">
-                  ${(pkg.features || []).map((f) => `<li>✓ ${f}</li>`).join('')}
+                  ${(localizedCopy.features || []).map((f) => `<li>✓ ${f}</li>`).join('')}
                 </ul>
               </div>
 
@@ -786,6 +903,7 @@ export class CreditStoreModal {
   }
 
   destroy() {
+    this._stopBackgroundOrderPolling();
     this._destroyEmbeddedElement();
     if (this._unsubLocale) {
       this._unsubLocale();

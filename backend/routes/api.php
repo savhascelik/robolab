@@ -23,6 +23,7 @@ Route::prefix('v1')->group(function () {
     // Public Auth Routes (with brute-force protection)
     Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:15,1');
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:15,1');
+    Route::post('/auth/judge-login', [AuthController::class, 'judgeLogin'])->middleware('throttle:30,1');
 
     // Public Whop Webhook & Credit Packages Catalog
     Route::get('/credits/packages', [CreditController::class, 'packages']);

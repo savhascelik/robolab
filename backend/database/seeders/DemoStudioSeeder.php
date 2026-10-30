@@ -17,8 +17,8 @@ class DemoStudioSeeder extends Seeder
     {
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
-        // 1. Seed Admin, Judge & Demo Maker users
-        $admin = User::query()->updateOrCreate(
+        // 1. Seed Admin, Judge & Demo Maker users (firstOrCreate preserves admin password/profile edits across deployments)
+        $admin = User::query()->firstOrCreate(
             ['email' => 'admin@nebius-hackathon.local'],
             [
                 'name' => 'Nebius Studio Admin',
@@ -26,10 +26,12 @@ class DemoStudioSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
-        $admin->syncRoles(['admin']);
+        if (! $admin->hasRole('admin')) {
+            $admin->syncRoles(['admin']);
+        }
         $admin->ensureInitialCreditGrant();
 
-        $judge = User::query()->updateOrCreate(
+        $judge = User::query()->firstOrCreate(
             ['email' => 'judge@nebius-hackathon.local'],
             [
                 'name' => 'Hackathon Judge #1',
@@ -37,10 +39,12 @@ class DemoStudioSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
-        $judge->syncRoles(['judge']);
+        if (! $judge->hasRole('judge')) {
+            $judge->syncRoles(['judge']);
+        }
         $judge->ensureInitialCreditGrant();
 
-        $maker = User::query()->updateOrCreate(
+        $maker = User::query()->firstOrCreate(
             ['email' => 'maker@nebius-hackathon.local'],
             [
                 'name' => 'Ada Lovelace (Maker)',
@@ -48,7 +52,9 @@ class DemoStudioSeeder extends Seeder
                 'email_verified_at' => now(),
             ]
         );
-        $maker->syncRoles(['free']);
+        if ($maker->roles()->count() === 0) {
+            $maker->syncRoles(['free']);
+        }
         $maker->ensureInitialCreditGrant();
 
         // 2. Seed sample open study group: "Açık Donanım Atölyesi"

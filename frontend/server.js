@@ -21,16 +21,37 @@ const MIME_TYPES = {
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
 
-  // Transparent reverse proxy for /api/v1/* -> Laravel Backend
-  if (urlPath.startsWith('/api/')) {
+  const isBackendProxyRoute =
+    urlPath.startsWith('/api/') ||
+    urlPath === '/admin' ||
+    urlPath.startsWith('/admin/') ||
+    urlPath.startsWith('/livewire/') ||
+    urlPath.startsWith('/filament/') ||
+    urlPath.startsWith('/css/filament/') ||
+    urlPath.startsWith('/js/filament/') ||
+    urlPath.startsWith('/vendor/filament/') ||
+    urlPath.startsWith('/vendor/livewire/') ||
+    urlPath.startsWith('/storage/') ||
+    urlPath.startsWith('/sanctum/') ||
+    urlPath === '/up';
+
+  // Transparent reverse proxy for /api/v1/* and /admin (Filament + Livewire) -> Laravel Backend
+  if (isBackendProxyRoute) {
     const targetUrl = new URL(req.url, BACKEND_INTERNAL_URL);
+    const forwardedProto = req.headers['x-forwarded-proto'] || 'https';
+    const forwardedHost = req.headers['x-forwarded-host'] || req.headers.host || targetUrl.host;
+    const forwardedPort = req.headers['x-forwarded-port'] || (forwardedProto === 'https' ? '443' : '80');
+
     const proxyReq = http.request(
       targetUrl,
       {
         method: req.method,
         headers: {
           ...req.headers,
-          host: targetUrl.host
+          host: forwardedHost,
+          'x-forwarded-host': forwardedHost,
+          'x-forwarded-proto': forwardedProto,
+          'x-forwarded-port': forwardedPort
         }
       },
       (proxyRes) => {
@@ -75,7 +96,11 @@ const server = http.createServer((req, res) => {
     const resolvedExt = path.extname(filePath).toLowerCase();
     res.writeHead(200, {
       'Content-Type': MIME_TYPES[resolvedExt] || 'application/octet-stream',
-      'Cache-Control': 'no-cache'
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      Pragma: 'no-cache',
+      Expires: '0',
+      'CDN-Cache-Control': 'no-store',
+      'Cloudflare-CDN-Cache-Control': 'no-store'
     });
     res.end(data);
   });

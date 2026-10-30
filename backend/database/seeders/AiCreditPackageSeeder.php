@@ -22,12 +22,12 @@ class AiCreditPackageSeeder extends Seeder
                 'is_popular' => false,
                 'is_active' => true,
                 'sort_order' => 1,
-                'description' => 'Hızlı devre sentezi, pin doğrulama ve gömülü C++ kod üretimi için başlangıç paketi.',
+                'description' => 'Starter pack for fast circuit synthesis, pin validation, and embedded C++ firmware generation.',
                 'features' => [
-                    '500 AI Devre & Ajan Kredisi',
+                    '500 AI Circuit & Agent Credits',
                     'Flownie Search Mode + CircuitSDK Code Mode',
-                    'Tavily Canlı Datasheet Sentezi',
-                    'Süresiz Geçerli (Purchased Bucket)',
+                    'Tavily Live Datasheet Synthesis',
+                    'Never Expires (Purchased Bucket)',
                 ],
             ],
             [
@@ -42,12 +42,12 @@ class AiCreditPackageSeeder extends Seeder
                 'is_popular' => true,
                 'is_active' => true,
                 'sort_order' => 2,
-                'description' => 'En çok tercih edilen paket: 2.000 Kredi + 300 Hediye Kredi ile çok turlu robotik ve Jetson Nano projeleri.',
+                'description' => 'Most popular pack: 2,000 Credits + 300 Bonus Credits for multi-turn robotics and Jetson Nano projects.',
                 'features' => [
-                    '2.000 Satın Alınan + 300 Bonus AI Kredisi (Toplam 2.300)',
-                    'Çok Turlu Otonom Devre Tasarım Ajanı',
-                    'NVIDIA Nemotron-70B & Gemini 2.5 Desteği',
-                    'Öncelikli Elektriksel Topoloji Doğrulama',
+                    '2,000 Purchased + 300 Bonus AI Credits (2,300 Total)',
+                    'Multi-Turn Autonomous Circuit Design Agent',
+                    'NVIDIA Nemotron-3 Super 120B & Qwen3 Support',
+                    'Priority Electrical Topology Verification',
                 ],
             ],
             [
@@ -62,18 +62,18 @@ class AiCreditPackageSeeder extends Seeder
                 'is_popular' => false,
                 'is_active' => true,
                 'sort_order' => 3,
-                'description' => 'Takımlar, laboratuvarlar ve yoğun otonom donanım testi yapan geliştiriciler için yüksek kapasiteli paket.',
+                'description' => 'High-capacity pack for teams, labs, and developers running intensive autonomous hardware simulations.',
                 'features' => [
-                    '6.000 Satın Alınan + 1.500 Bonus AI Kredisi (Toplam 7.500)',
-                    'Tüm AI Modellerinde Tam Kapasite',
-                    'Sınırsız Özel 3B Sensör & Datasheet Sentezi',
-                    'Açık Çalışma Gruplarında Tam Paylaşım',
+                    '6,000 Purchased + 1,500 Bonus AI Credits (7,500 Total)',
+                    'Full Capacity Across All AI Models',
+                    'Unlimited Custom 3D Sensor & Datasheet Synthesis',
+                    'Full Collaboration in Open Study Groups',
                 ],
             ],
         ];
 
         foreach ($packages as $pkg) {
-            AiCreditPackage::updateOrCreate(
+            AiCreditPackage::firstOrCreate(
                 ['slug' => $pkg['slug']],
                 $pkg
             );

@@ -26,10 +26,9 @@ class WhopService
      */
     public function createCreditCheckoutUrl(AiCreditPackage $package, User $user, AiCreditOrder $order): string
     {
+        $checkoutTargetId = $package->whop_plan_id ?: ($package->whop_product_id ?: "plan_{$package->slug}");
         $baseCheckout = $package->whop_checkout_url
-            ?: ($package->whop_plan_id
-                ? "https://whop.com/checkout/{$package->whop_plan_id}/"
-                : "https://whop.com/checkout/plan_{$package->slug}/");
+            ?: "https://whop.com/checkout/{$checkoutTargetId}/";
 
         $queryParams = http_build_query([
             'email' => $user->email,
@@ -59,7 +58,7 @@ class WhopService
      */
     public function buildEmbeddedCheckoutConfig(AiCreditPackage $package, User $user, AiCreditOrder $order): array
     {
-        $planId = $package->whop_plan_id ?: "plan_{$package->slug}";
+        $planId = $package->whop_plan_id ?: ($package->whop_product_id ?: "plan_{$package->slug}");
         $returnUrl = "{$this->frontendUrl}/workbench?checkout_order={$order->order_number}&payment=success";
         $webhookUrl = rtrim((string) config('app.url', $this->frontendUrl), '/') . '/api/v1/webhooks/whop';
 
