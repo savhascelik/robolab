@@ -134,10 +134,17 @@ export class BackendApiClient {
   }
 
   constructor(options = {}) {
+    const isRemoteBrowserHost =
+      typeof window !== 'undefined' &&
+      window.location &&
+      window.location.hostname &&
+      window.location.hostname !== '127.0.0.1' &&
+      window.location.hostname !== 'localhost';
+
     this.baseUrl =
       options.baseUrl ||
       (typeof window !== 'undefined' && window.__CIRCUITLAB_API_URL__) ||
-      'http://127.0.0.1:8000/api/v1';
+      (isRemoteBrowserHost ? `${window.location.origin}/api/v1` : 'http://127.0.0.1:8000/api/v1');
 
     this.fetchImpl =
       options.fetchImpl !== undefined

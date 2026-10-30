@@ -285,6 +285,10 @@ export class CustomComponentStudioPage {
     };
     this.lastTestReport = null;
 
+    // Left CAD & Pin Inspector collapse / accordion state
+    this.isLeftPanelCollapsed = false;
+    this.collapsedSections = new Set(['pins', 'logic']);
+
     // Studio Architect state (Agentic multi-step trace & progress like Workbench AiAgentChatPanel)
     this.isArchitectBusy = false;
     this.architectRound = 1;
@@ -1081,7 +1085,7 @@ return {
       },
       {
         label: isTr ? 'Self-Test Doğrulaması' : 'Self-Test Verification',
-        value: `${selfTest?.ok !== false ? 'PASS (Doğrulandı)' : 'FAIL'} · ${tools.length} SDK Adımı · Tur ${round}/${this.architectMaxRounds || 6}`
+        value: `${selfTest?.ok !== false ? (isTr ? 'PASS (Doğrulandı)' : 'PASS (Verified)') : 'FAIL'} · ${tools.length} ${isTr ? 'SDK Adımı' : 'SDK Steps'} · ${isTr ? 'Tur' : 'Round'} ${round}/${this.architectMaxRounds || 6}`
       }
     ];
 
@@ -1124,7 +1128,7 @@ return {
     const args = tCall?.args && typeof tCall.args === 'object' ? tCall.args : {};
     const lower = toolName.toLowerCase();
 
-    let phaseBadge = '3B CAD';
+    let phaseBadge = isTr ? '3B CAD' : '3D CAD';
     let phaseTone = 'cad';
     if (lower.includes('meta') || lower.includes('template') || lower.includes('snapshot') || lower.includes('preset')) {
       phaseBadge = isTr ? 'KİMLİK & ŞEMA' : 'META & SCHEMA';
@@ -1727,16 +1731,38 @@ return {
         </header>
 
         <!-- 3-Column Dedicated Studio Body -->
-        <div class="studio-page-grid">
+        <div class="studio-page-grid ${this.isLeftPanelCollapsed ? 'is-left-collapsed' : ''}">
           <!-- LEFT COLUMN: Visual CAD Parts, Attach, Pin Generator & Behavior Inspector -->
           <aside class="studio-page-inspector" aria-label="${isTr ? 'Görsel CAD ve Pin Denetçisi' : 'Visual CAD and Pin Inspector'}">
+            <div class="studio-inspector-topbar">
+              <span class="studio-inspector-topbar__title">${isTr ? 'SOL CAD & PİN MENÜSÜ' : 'CAD & PIN INSPECTOR'}</span>
+              <div class="studio-inspector-topbar__actions">
+                <button
+                  type="button"
+                  class="studio-btn studio-btn--xs"
+                  data-action="toggle-all-studio-sections"
+                  title="${isTr ? 'Tüm bölümleri aç veya daralt' : 'Expand or compact all sections'}"
+                >${this.collapsedSections.size > 0 ? (isTr ? 'Tümünü Aç ▾' : 'Expand All ▾') : (isTr ? 'Kompakt ▸' : 'Compact ▸')}</button>
+                <button
+                  type="button"
+                  class="studio-btn studio-btn--xs"
+                  data-action="toggle-studio-left-panel"
+                  title="${isTr ? 'Sol menüyü gizle (3B sahneyi genişlet)' : 'Collapse left inspector panel'}"
+                >${isTr ? '⟪ Gizle' : '⟪ Hide'}</button>
+              </div>
+            </div>
+
             <!-- Section 1: Component Type & Identity -->
-            <section class="studio-panel-section">
-              <div class="studio-section-header">
-                <span class="studio-section-title">${isTr ? '1. BİLEŞEN TÜRÜ & KİMLİK' : '1. COMPONENT TYPE & IDENTITY'}</span>
+            <section class="studio-panel-section ${this.collapsedSections.has('identity') ? 'is-collapsed' : ''}" data-studio-section="identity">
+              <div class="studio-section-header studio-section-header--collapsible" data-action="toggle-studio-section" data-section="identity">
+                <span class="studio-section-title-wrap">
+                  <span class="studio-section-chevron">${this.collapsedSections.has('identity') ? '▸' : '▾'}</span>
+                  <span class="studio-section-title">${isTr ? '1. BİLEŞEN TÜRÜ & KİMLİK' : '1. COMPONENT TYPE & IDENTITY'}</span>
+                </span>
                 <code class="studio-section-meta">${draft.geometry.width}×${draft.geometry.height}×${draft.geometry.depth}cm</code>
               </div>
 
+              <div class="studio-section-body">
               <div class="studio-archetype-switch" role="radiogroup">
                 <button
                   type="button"
@@ -1783,17 +1809,22 @@ return {
                   <input type="number" step="0.2" min="0.4" max="30" data-studio-dim="depth" value="${draft.geometry.depth}" />
                 </label>
               </div>
+              </div>
             </section>
 
             <!-- Section 2: Declarative 3D CAD Parts Tree & Relative Attach Inspector -->
-            <section class="studio-panel-section">
-              <div class="studio-section-header">
-                <span class="studio-section-title">${isTr ? '2. 3B GÖVDE PARÇA AĞACI' : '2. 3D CAD PARTS TREE'}</span>
+            <section class="studio-panel-section ${this.collapsedSections.has('parts') ? 'is-collapsed' : ''}" data-studio-section="parts">
+              <div class="studio-section-header studio-section-header--collapsible" data-action="toggle-studio-section" data-section="parts">
+                <span class="studio-section-title-wrap">
+                  <span class="studio-section-chevron">${this.collapsedSections.has('parts') ? '▸' : '▾'}</span>
+                  <span class="studio-section-title">${isTr ? '2. 3B GÖVDE PARÇA AĞACI' : '2. 3D CAD PARTS TREE'} (${parts.length})</span>
+                </span>
                 <button type="button" class="studio-btn studio-btn--xs" data-action="studio-add-part">
                   + ${isTr ? 'Parça Ekle' : 'Add Part'}
                 </button>
               </div>
 
+              <div class="studio-section-body">
               <div class="studio-parts-list" role="listbox" aria-label="${isTr ? '3B CAD Parçaları' : '3D CAD Parts'}">
                 ${parts
                   .map((p) => {
@@ -1945,15 +1976,19 @@ return {
               `
                   : ''
               }
+              </div>
             </section>
 
             <!-- Section 3: Pin / Terminal & 2.54mm Header Generator (OR Obstacle Profile) -->
             ${
               !isProp
                 ? `
-              <section class="studio-panel-section">
-                <div class="studio-section-header">
-                  <span class="studio-section-title">${isTr ? '3. ELEKTRONİK PİNLER & 2.54MM DİZİ ÜRETİCİ' : '3. ELECTRONIC PINS & 2.54MM HEADER GENERATOR'}</span>
+              <section class="studio-panel-section ${this.collapsedSections.has('pins') ? 'is-collapsed' : ''}" data-studio-section="pins">
+                <div class="studio-section-header studio-section-header--collapsible" data-action="toggle-studio-section" data-section="pins">
+                  <span class="studio-section-title-wrap">
+                    <span class="studio-section-chevron">${this.collapsedSections.has('pins') ? '▸' : '▾'}</span>
+                    <span class="studio-section-title">${isTr ? '3. ELEKTRONİK PİNLER & 2.54MM DİZİ ÜRETİCİ' : '3. ELECTRONIC PINS & 2.54MM HEADER GENERATOR'}</span>
+                  </span>
                   <div class="studio-inline-actions">
                     <button type="button" class="studio-btn studio-btn--xs" data-action="studio-add-pin">
                       + ${isTr ? 'Pin Ekle' : 'Add Pin'}
@@ -1964,6 +1999,7 @@ return {
                   </div>
                 </div>
 
+                <div class="studio-section-body">
                 <div class="studio-pins-list">
                   ${pins
                     .map(
@@ -1981,13 +2017,18 @@ return {
                     )
                     .join('')}
                 </div>
+                </div>
               </section>
             `
                 : `
-              <section class="studio-panel-section">
-                <div class="studio-section-header">
-                  <span class="studio-section-title">${isTr ? '3. FİZİKSEL ENGEL PROFİLİ (SENSÖR ETKİLEŞİMİ)' : '3. PHYSICAL OBSTACLE PROFILE (SENSOR INTERACTION)'}</span>
+              <section class="studio-panel-section ${this.collapsedSections.has('pins') ? 'is-collapsed' : ''}" data-studio-section="pins">
+                <div class="studio-section-header studio-section-header--collapsible" data-action="toggle-studio-section" data-section="pins">
+                  <span class="studio-section-title-wrap">
+                    <span class="studio-section-chevron">${this.collapsedSections.has('pins') ? '▸' : '▾'}</span>
+                    <span class="studio-section-title">${isTr ? '3. FİZİKSEL ENGEL PROFİLİ (SENSÖR ETKİLEŞİMİ)' : '3. PHYSICAL OBSTACLE PROFILE (SENSOR INTERACTION)'}</span>
+                  </span>
                 </div>
+                <div class="studio-section-body">
                 <div class="studio-prop-flags">
                   <label class="studio-checkbox">
                     <input type="checkbox" data-prop-flag="reflectsUltrasonic" ${draft.obstacleProfile?.reflectsUltrasonic !== false ? 'checked' : ''} />
@@ -1998,6 +2039,7 @@ return {
                     <span>${isTr ? 'Kızılötesi / Optik Görüş Işınlarını Keser' : 'Blocks Infrared / Optical FOV Rays'}</span>
                   </label>
                 </div>
+                </div>
               </section>
             `
             }
@@ -2006,19 +2048,24 @@ return {
             ${
               !isProp
                 ? `
-              <section class="studio-panel-section">
-                <div class="studio-section-header">
-                  <span class="studio-section-title">${isTr ? '4. BİLEŞEN ÇALIŞMA MANTIĞI (SİNYAL & ÇIKIŞ KODU)' : '4. COMPONENT BEHAVIOR LOGIC (SIGNAL & OUTPUT CODE)'}</span>
+              <section class="studio-panel-section ${this.collapsedSections.has('logic') ? 'is-collapsed' : ''}" data-studio-section="logic">
+                <div class="studio-section-header studio-section-header--collapsible" data-action="toggle-studio-section" data-section="logic">
+                  <span class="studio-section-title-wrap">
+                    <span class="studio-section-chevron">${this.collapsedSections.has('logic') ? '▸' : '▾'}</span>
+                    <span class="studio-section-title">${isTr ? '4. BİLEŞEN ÇALIŞMA MANTIĞI (SİNYAL & ÇIKIŞ KODU)' : '4. COMPONENT BEHAVIOR LOGIC (SIGNAL & OUTPUT CODE)'}</span>
+                  </span>
                   <button type="button" class="studio-btn studio-btn--xs" data-action="studio-apply-evaluate">
                     ${isTr ? 'Uygula & Test Et' : 'Apply & Test'}
                   </button>
                 </div>
+                <div class="studio-section-body">
                 <textarea
                   class="studio-code-textarea"
                   data-field="evaluate-script"
                   rows="6"
                   spellcheck="false"
                 >${this._escapeHtml(draft.behavior?.evaluate || '')}</textarea>
+                </div>
               </section>
             `
                 : ''
@@ -2031,6 +2078,12 @@ return {
             <div class="studio-viewport-stage">
               <div class="studio-viewport-hud-top">
                 <div class="studio-camera-pills" role="group" aria-label="${isTr ? 'Kamera Açıları' : 'Camera Presets'}">
+                  <button
+                    type="button"
+                    class="studio-cam-btn ${this.isLeftPanelCollapsed ? 'is-active' : ''}"
+                    data-action="toggle-studio-left-panel"
+                    title="${isTr ? 'Sol CAD ve Pin Menüsünü Aç / Kapat' : 'Toggle Left CAD & Pin Inspector'}"
+                  >${this.isLeftPanelCollapsed ? (isTr ? '⟫ SOL MENÜYÜ AÇ' : '⟫ SHOW CAD MENU') : (isTr ? '⟪ SOL MENÜ' : '⟪ CAD MENU')}</button>
                   ${['iso', 'top', 'front', 'side']
                     .map(
                       (viewKey) => `
@@ -2593,6 +2646,39 @@ return {
         return;
       }
 
+      // Toggle Left CAD & Pin Inspector Panel
+      if (target.closest('[data-action="toggle-studio-left-panel"]')) {
+        this.isLeftPanelCollapsed = !this.isLeftPanelCollapsed;
+        this.render();
+        return;
+      }
+
+      // Expand / Compact all Left Inspector sections
+      if (target.closest('[data-action="toggle-all-studio-sections"]')) {
+        if (this.collapsedSections.size > 0) {
+          this.collapsedSections.clear();
+        } else {
+          this.collapsedSections = new Set(['identity', 'pins', 'logic']);
+        }
+        this.render();
+        return;
+      }
+
+      // Toggle individual Left Inspector accordion section (ignore nested action buttons)
+      const sectionHeader = target.closest('[data-action="toggle-studio-section"]');
+      if (sectionHeader && !target.closest('button')) {
+        const secKey = sectionHeader.getAttribute('data-section');
+        if (secKey) {
+          if (this.collapsedSections.has(secKey)) {
+            this.collapsedSections.delete(secKey);
+          } else {
+            this.collapsedSections.add(secKey);
+          }
+          this.render();
+        }
+        return;
+      }
+
       // Select part in tree
       const removePartBtn = target.closest('[data-remove-part]');
       if (removePartBtn) {
@@ -2952,6 +3038,26 @@ return {
         this._studioPedestalGrid = new THREE.GridHelper(12, 24, 0x334155, 0x1e293b);
         this._studioPedestalGrid.position.y = -0.35;
         this._studioScene.add(this._studioPedestalGrid);
+      }
+
+      if (this._studioPedestalGrid && this._studioScene) {
+        const activeTheme =
+          (typeof this.themeService?.getTheme === 'function' && this.themeService.getTheme()) ||
+          document.documentElement?.getAttribute('data-theme') ||
+          'dark';
+        const wantLight = activeTheme === 'light';
+        if (this._studioPedestalGrid._isLightTheme !== wantLight) {
+          this._studioScene.remove(this._studioPedestalGrid);
+          this._studioPedestalGrid = new THREE.GridHelper(
+            12,
+            24,
+            wantLight ? 0x94a3b8 : 0x334155,
+            wantLight ? 0xcbd5e1 : 0x1e293b
+          );
+          this._studioPedestalGrid.position.y = -0.35;
+          this._studioPedestalGrid._isLightTheme = wantLight;
+          this._studioScene.add(this._studioPedestalGrid);
+        }
       }
 
       if (!this._studioRenderer && typeof WebGLRenderingContext !== 'undefined') {

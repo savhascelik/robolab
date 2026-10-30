@@ -8,6 +8,7 @@
 [data-theme="dark"] {
   --bg-canvas: #0B0C0E;
   --surface-glass: rgba(20, 22, 25, 0.86);
+  --surface-floating: #14161A;
   --surface-elevated: #181A1F;
   --surface-subtle: #121418;
   --surface-input: #0E1014;
@@ -29,7 +30,8 @@
 
 [data-theme="light"] {
   --bg-canvas: #F3F2EE;
-  --surface-glass: rgba(255, 255, 255, 0.90);
+  --surface-glass: rgba(255, 255, 255, 0.92);
+  --surface-floating: #FFFFFF;
   --surface-elevated: #FFFFFF;
   --surface-subtle: #EAE8E1;
   --surface-input: #F8F7F4;
@@ -5949,6 +5951,15 @@ textarea {
   min-height: 0;
   display: grid;
   grid-template-columns: 360px 1fr 370px;
+  transition: grid-template-columns 0.16s ease;
+}
+
+.studio-page-grid.is-left-collapsed {
+  grid-template-columns: minmax(0, 1fr) 370px;
+}
+
+.studio-page-grid.is-left-collapsed .studio-page-inspector {
+  display: none;
 }
 
 .studio-page-inspector {
@@ -5959,6 +5970,32 @@ textarea {
   flex-direction: column;
 }
 
+.studio-inspector-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-subtle);
+  flex-shrink: 0;
+}
+
+.studio-inspector-topbar__title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.studio-inspector-topbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .studio-panel-section {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border-hairline);
@@ -5967,11 +6004,51 @@ textarea {
   gap: 9px;
 }
 
+.studio-panel-section.is-collapsed {
+  padding: 9px 14px;
+  background: var(--surface-subtle);
+}
+
+.studio-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.studio-panel-section.is-collapsed .studio-section-body {
+  display: none;
+}
+
 .studio-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.studio-section-header--collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.studio-section-header--collapsible:hover .studio-section-title {
+  color: var(--text-primary);
+}
+
+.studio-section-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.studio-section-chevron {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--signal-active);
+  width: 12px;
+  display: inline-block;
+  text-align: center;
 }
 
 .studio-section-title {

@@ -53,6 +53,8 @@ const server = http.createServer((req, res) => {
     urlPath.startsWith('/workbench/') ||
     urlPath === '/workspace' ||
     urlPath.startsWith('/workspace/') ||
+    urlPath === '/studio' ||
+    urlPath.startsWith('/studio/') ||
     urlPath === '/showcase' ||
     !ext;
   const relPath = isSpaRoute ? '/index.html' : urlPath;

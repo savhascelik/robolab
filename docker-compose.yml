@@ -3,31 +3,39 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: circuitlab-backend
     restart: unless-stopped
     ports:
       - "127.0.0.1:8000:8000"
-    env_file:
-      - ./backend/.env
     environment:
-      APP_NAME: "CircuitLab 3D API"
-      APP_ENV: local
-      APP_DEBUG: "true"
-      APP_URL: "http://127.0.0.1:8000"
+      APP_NAME: "${APP_NAME:-CircuitLab 3D API}"
+      APP_ENV: "${APP_ENV:-production}"
+      APP_DEBUG: "${APP_DEBUG:-false}"
+      APP_KEY: "${APP_KEY:-}"
+      APP_URL: "${APP_URL:-https://robolab.createforkids.com}"
       DB_CONNECTION: sqlite
       DB_DATABASE: "/var/www/html/storage/database/database.sqlite"
-      AI_DEFAULT_PROVIDER: nebius
-      FRONTEND_URL: "http://127.0.0.1:5173"
-      CORS_ALLOWED_ORIGINS: "*"
+      AI_DEFAULT_PROVIDER: "${AI_DEFAULT_PROVIDER:-nebius}"
+      NEBIUS_BASE_URL: "${NEBIUS_BASE_URL:-https://api.tokenfactory.nebius.com/v1}"
+      NEBIUS_API_KEY: "${NEBIUS_API_KEY:-}"
+      NEBIUS_DEFAULT_MODEL: "${NEBIUS_DEFAULT_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
+      NEBIUS_FAST_MODEL: "${NEBIUS_FAST_MODEL:-Qwen/Qwen3-30B-A3B-Instruct-2507}"
+      TAVILY_BASE_URL: "${TAVILY_BASE_URL:-https://api.tavily.com}"
+      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
+      TAVILY_CACHE_TTL_HOURS: "${TAVILY_CACHE_TTL_HOURS:-720}"
+      WHOP_WEBHOOK_SECRET: "${WHOP_WEBHOOK_SECRET:-}"
+      JUDGE_ACCESS_CODE: "${JUDGE_ACCESS_CODE:-}"
+      JUDGE_MAGIC_TOKEN: "${JUDGE_MAGIC_TOKEN:-}"
+      FRONTEND_URL: "${FRONTEND_URL:-https://robolab.createforkids.com}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-*}"
     volumes:
       - backend_sqlite:/var/www/html/storage/database
-      - ./backend/.env:/var/www/html/.env
+    networks:
+      - robolab-net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: circuitlab-frontend
     restart: unless-stopped
     ports:
       - "127.0.0.1:5173:5173"
@@ -37,6 +45,12 @@ services:
       BACKEND_INTERNAL_URL: "http://backend:8000"
     depends_on:
       - backend
+    networks:
+      - robolab-net
+
+networks:
+  robolab-net:
+    driver: bridge
 
 volumes:
   backend_sqlite:
